@@ -33,3 +33,6 @@ daemon/eval/**/*.local.json
 
 # per-developer agent instructions
 CLAUDE.local.md
+
+# README screenshots (rendered from the design project, fictional data only)
+!docs/images/*.png

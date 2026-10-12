@@ -14,6 +14,8 @@ Nova closes it.
 > it is not signed for other Macs yet. Expect rough edges.
 > See [docs/roadmap.md](docs/roadmap.md).
 
+![The open-loops panel: what you owe and what is owed to you, each with who and where it came from](docs/images/panel.png)
+
 ## What it does
 
 - **Remembers what you read.** Every 3 seconds Nova reads the frontmost
@@ -49,6 +51,17 @@ Nova closes it.
   at all.
 
 Details: [docs/privacy.md](docs/privacy.md).
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Morning briefing card](docs/images/digest.png) | ![Your Space, Activity: what Nova read from the screen, as titles and word counts](docs/images/activity.png) |
+| **Morning briefing.** What you owe, what you are waiting on, and what yesterday came to. | **Activity.** Every capture and every call to your provider, as metadata, never content. |
+| ![Your Space, Your data: delete by time or by app](docs/images/data.png) | |
+| **Your data.** See what Nova holds, and delete by time, by app or everything. | |
+
+Screenshots use fictional people and data.
 
 ## Requirements
 
