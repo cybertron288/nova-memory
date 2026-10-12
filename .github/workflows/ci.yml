@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  daemon:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+      - run: brew install sqlcipher
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      # Tests use the Keychain service dev.nova.keys.test (test/setup.ts).
+      - run: bun test
+
+  swift:
+    runs-on: macos-15
+    strategy:
+      matrix:
+        package: [capture, shell]
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --package-path ${{ matrix.package }}

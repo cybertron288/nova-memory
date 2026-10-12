@@ -1,0 +1,12 @@
+[
+  {"ts": "2026-08-12T10:00:05Z", "app": "Slack", "text": "jordan: can you send the q3 planning deck by friday? also the offsite budget needs sign-off"},
+  {"ts": "2026-08-12T10:01:12Z", "app": "Slack", "text": "you: yes will send the deck by friday. budget — checking with marco"},
+  {"ts": "2026-08-12T10:03:40Z", "app": "Chrome", "text": "Q3 Planning Deck - Google Slides. slide 4: hiring plan, 3 backend roles, 1 designer"},
+  {"ts": "2026-08-12T10:05:02Z", "app": "Mail", "text": "from marco: offsite budget approved at 12k, book venue this week"},
+  {"ts": "2026-08-12T10:06:30Z", "app": "Chrome", "text": "airbnb search: team offsite venue lisbon october 12-14"},
+  {"ts": "2026-08-12T10:08:11Z", "app": "Cursor", "text": "relay.ts: add per-user rate limit middleware, TODO wire redis bucket"},
+  {"ts": "2026-08-12T10:10:45Z", "app": "Slack", "text": "you: budget approved 12k per marco, booking venue this week"},
+  {"ts": "2026-08-12T10:11:20Z", "app": "Slack", "text": "jordan: great. don't forget the deck"},
+  {"ts": "2026-08-12T10:12:55Z", "app": "Chrome", "text": "stripe vs dodo payments merchant of record comparison blog post"},
+  {"ts": "2026-08-12T10:14:30Z", "app": "Terminal", "text": "bun test — 14 pass 0 fail relay rate-limit suite"}
+]

@@ -1,0 +1,7 @@
+{
+  "name": "nova-spike-retrieval",
+  "type": "module",
+  "scripts": { "bench": "bun run src/bench.ts" },
+  "dependencies": { "sqlite-vec": "0.1.7-alpha.2" },
+  "devDependencies": { "@types/bun": "latest" }
+}

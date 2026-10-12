@@ -1,0 +1,6 @@
+{
+  "name": "nova-spike-summarize",
+  "type": "module",
+  "scripts": { "compare": "bun run src/compare.ts" },
+  "devDependencies": { "@types/bun": "latest" }
+}

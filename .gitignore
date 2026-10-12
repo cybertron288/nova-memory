@@ -1,0 +1,35 @@
+# secrets. daemon/.env is tracked only as a symlink to ../.env (Bun loads .env
+# from the daemon's cwd); git stores the link target, never the file.
+.env
+!.env.example
+!daemon/.env
+*.key
+
+# bun / node
+node_modules/
+
+# swift
+.build/
+*.app/
+.swiftpm/
+DerivedData/
+/build/
+
+# spike artifacts (audio recordings, screenshots — never commit content)
+spikes/**/artifacts/
+*.wav
+*.png
+
+# visual-companion session files
+.superpowers/
+
+.DS_Store
+
+# Swift build artifacts
+shell/.build/
+
+# eval fixtures and labels hold captured content
+daemon/eval/**/*.local.json
+
+# per-developer agent instructions
+CLAUDE.local.md
