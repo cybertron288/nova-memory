@@ -9,13 +9,7 @@ import SwiftUI
 
 @MainActor
 final class InspectorModel: ObservableObject {
-    /// The panes of Your Space.
-    ///
-    /// An unbuilt pane says so in a line. That is the opposite of D19's ruling
-    /// against placeholders, and deliberately so: D19 was about a surface read
-    /// in two seconds, where an empty heading spends attention the user did
-    /// not offer. This window is opened on purpose to look around, and
-    /// hiding the roadmap from someone auditing the app reads as evasion.
+    /// The panes of Your Space, in sidebar order.
     enum Pane: CaseIterable {
         case activity, blockedApps, permissions, profile, data
 
@@ -26,27 +20,6 @@ final class InspectorModel: ObservableObject {
             case .permissions: return "Permissions"
             case .profile: return "Profile"
             case .data: return "Your data"
-            }
-        }
-
-        var built: Bool { true }
-
-        /// The sidebar lists only built panes.
-        static var shown: [Pane] { allCases.filter(\.built) }
-
-        /// What the pane will hold, shown while it is unbuilt.
-        var promise: String {
-            switch self {
-            case .activity:
-                return ""
-            case .blockedApps:
-                return "Apps and sites Nova will never read, and a count of the windows it skipped because of them"
-            case .permissions:
-                return "Each macOS permission Nova uses, whether it is on, and what it is for"
-            case .profile:
-                return "Your name and the handles people use for you, which Nova uses to tell what you owe from what others owe you"
-            case .data:
-                return "Everything in your memory, with ways to export or erase it"
             }
         }
     }
@@ -416,7 +389,7 @@ final class InspectorModel: ObservableObject {
         // direction is what makes the window feel navigated rather than
         // reloaded, so it is decided here, where the old and new positions
         // are both known.
-        let all = Pane.shown
+        let all = Pane.allCases
         if let from = all.firstIndex(of: pane), let to = all.firstIndex(of: next) {
             paneDirection = to > from ? 1 : -1
         }
@@ -424,7 +397,6 @@ final class InspectorModel: ObservableObject {
         // and wrapping the assignment would animate the sidebar wash with the
         // pane's longer curve instead of its own 140ms.
         pane = next
-        guard next.built else { return }
         // Already have it: a revisit shows the rows it had and refreshes
         // underneath, rather than blanking back to "Asking Nova".
         if next == .blockedApps && blockedLoaded { refresh(); return }

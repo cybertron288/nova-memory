@@ -71,7 +71,7 @@ struct InspectorView: View {
                 .padding(.top, 4)
                 .padding(.bottom, Nova.space4)
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(InspectorModel.Pane.shown, id: \.self) { item in
+                ForEach(InspectorModel.Pane.allCases, id: \.self) { item in
                     SidebarItem(
                         item: item,
                         selected: item == model.pane,
@@ -133,21 +133,7 @@ struct InspectorView: View {
 
     @ViewBuilder
     private var pane: some View {
-        if !model.pane.built {
-            VStack(alignment: .leading, spacing: Nova.space4) {
-                Text("NOT BUILT YET")
-                    .font(Nova.label)
-                    .tracking(Nova.labelTracking)
-                    .foregroundStyle(Nova.inkTertiary)
-                Text(model.pane.promise)
-                    .font(Nova.body)
-                    .foregroundStyle(Nova.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 420, alignment: .leading)
-            }
-            .padding(Nova.space8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if model.pane == .blockedApps {
+        if model.pane == .blockedApps {
             // Never gated on the connection: the four checks ship inside Nova
             // and apply whenever it runs, so they show even when the daemon
             // is unreachable. Only their counts are unknown.
@@ -545,7 +531,7 @@ private struct SidebarItem: View {
     var body: some View {
         Text(item.title)
             .font(Nova.body)
-            .foregroundStyle(ink)
+            .foregroundStyle(Nova.inkPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Nova.space4)
             .frame(height: 28)
@@ -561,7 +547,6 @@ private struct SidebarItem: View {
             })
             .onHover { hover = $0 }
             .animation(.nova(Nova.quick), value: hover)
-            .help(item.built ? "" : "Not built yet")
     }
 
     /// The selected row carries the shared wash; unselected rows carry their
@@ -579,12 +564,6 @@ private struct SidebarItem: View {
         }
     }
 
-    /// An unbuilt pane is dimmed but still selectable: it says what it will
-    /// hold, which is the honest answer to a user looking around.
-    private var ink: Color {
-        if item.built { return Nova.inkPrimary }
-        return selected ? Nova.inkSecondary : Nova.inkTertiary
-    }
 }
 
 /// The section's name, its count, and the claim it makes about itself. Pinned
