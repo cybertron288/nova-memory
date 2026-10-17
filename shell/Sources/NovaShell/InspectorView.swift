@@ -158,6 +158,8 @@ struct InspectorView: View {
             YourDataView(model: model)
         } else if model.pane == .profile {
             ProfileView(model: model)
+        } else if model.pane == .permissions {
+            PermissionsView(model: model)
         } else {
             switch model.connection {
             case .loading:

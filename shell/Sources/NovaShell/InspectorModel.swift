@@ -9,10 +9,7 @@ import SwiftUI
 
 @MainActor
 final class InspectorModel: ObservableObject {
-    /// The panes of Your Space. Permissions is the one not yet built; it is
-    /// named because the menu already promises the container, and a user
-    /// who opens it should see the shape of what is coming rather than a
-    /// window with one unexplained list.
+    /// The panes of Your Space.
     ///
     /// An unbuilt pane says so in a line. That is the opposite of D19's ruling
     /// against placeholders, and deliberately so: D19 was about a surface read
@@ -32,10 +29,9 @@ final class InspectorModel: ObservableObject {
             }
         }
 
-        var built: Bool { self != .permissions }
+        var built: Bool { true }
 
-        /// The sidebar lists only built panes. Permissions stays as a case so
-        /// its promise is ready, but an unbuilt pane is not shown.
+        /// The sidebar lists only built panes.
         static var shown: [Pane] { allCases.filter(\.built) }
 
         /// What the pane will hold, shown while it is unbuilt.
@@ -46,7 +42,7 @@ final class InspectorModel: ObservableObject {
             case .blockedApps:
                 return "Apps and sites Nova will never read, and a count of the windows it skipped because of them"
             case .permissions:
-                return "Each macOS permission Nova holds, when you granted it, and what it is used for"
+                return "Each macOS permission Nova uses, whether it is on, and what it is for"
             case .profile:
                 return "Your name and the handles people use for you, which Nova uses to tell what you owe from what others owe you"
             case .data:
@@ -155,6 +151,24 @@ final class InspectorModel: ObservableObject {
     /// Nova's reason for refusing the last save, shown under the form.
     @Published private(set) var profileError: String?
 
+    // MARK: Permissions
+
+    /// Read from macOS in this process, never asked of Nova, so the pane has
+    /// no unreachable state of its own.
+    @Published private(set) var grants = InspectorModel.readGrants()
+    private var activation: NSObjectProtocol?
+
+    nonisolated private static func readGrants() -> [NovaPermission: Bool] {
+        Dictionary(uniqueKeysWithValues: NovaPermission.allCases.map { ($0, $0.granted) })
+    }
+
+    /// Also run on activation: the user flips the switch in System Settings
+    /// and comes back, and the pane should already agree.
+    private func refreshGrants() {
+        let next = Self.readGrants()
+        if grants != next { grants = next }
+    }
+
     var profileChanged: Bool {
         draftName.trimmingCharacters(in: .whitespacesAndNewlines) != (profile?.name ?? "")
             || draftAliases != (profile?.aliases ?? [])
@@ -233,6 +247,11 @@ final class InspectorModel: ObservableObject {
 
     func start() {
         active = true
+        activation = activation ?? NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main,
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshGrants() }
+        }
         refresh()
     }
 
@@ -240,6 +259,8 @@ final class InspectorModel: ObservableObject {
     /// decrypts a page of rows in the daemon for no one.
     func stop() {
         active = false
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+        activation = nil
         poll?.invalidate()
         poll = nil
         interval = 0
@@ -251,6 +272,7 @@ final class InspectorModel: ObservableObject {
     }
 
     func refresh() {
+        refreshGrants()
         let client = self.client
         let limit = Self.pageSize
         let since = Int64(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1000)
