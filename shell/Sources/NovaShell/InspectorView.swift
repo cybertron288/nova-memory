@@ -102,7 +102,7 @@ struct InspectorView: View {
                 .contentTransition(.opacity)
                 .animation(.nova(Nova.base), value: model.pane)
             Spacer(minLength: 0)
-            if model.pane == .activity || model.pane == .data, let status {
+            if model.pane == .activity || model.pane == .data || model.pane == .profile, let status {
                 StatusDot(status: status.0, label: status.1)
             }
             if model.pane == .blockedApps {
@@ -156,6 +156,8 @@ struct InspectorView: View {
             // Never gated on the connection, like Blocked apps: the pane says
             // what it can't count rather than going blank.
             YourDataView(model: model)
+        } else if model.pane == .profile {
+            ProfileView(model: model)
         } else {
             switch model.connection {
             case .loading:

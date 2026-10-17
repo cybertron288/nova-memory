@@ -9,8 +9,8 @@ import SwiftUI
 
 @MainActor
 final class InspectorModel: ObservableObject {
-    /// The panes of Your Space. Activity is the only one built; the others
-    /// are named because the menu already promises the container, and a user
+    /// The panes of Your Space. Permissions is the one not yet built; it is
+    /// named because the menu already promises the container, and a user
     /// who opens it should see the shape of what is coming rather than a
     /// window with one unexplained list.
     ///
@@ -32,10 +32,10 @@ final class InspectorModel: ObservableObject {
             }
         }
 
-        var built: Bool { self == .activity || self == .blockedApps || self == .data }
+        var built: Bool { self != .permissions }
 
-        /// The sidebar lists only built panes. Permissions and Profile stay as cases
-        /// so their promises are ready, but an unbuilt pane is not shown.
+        /// The sidebar lists only built panes. Permissions stays as a case so
+        /// its promise is ready, but an unbuilt pane is not shown.
         static var shown: [Pane] { allCases.filter(\.built) }
 
         /// What the pane will hold, shown while it is unbuilt.
@@ -48,7 +48,7 @@ final class InspectorModel: ObservableObject {
             case .permissions:
                 return "Each macOS permission Nova holds, when you granted it, and what it is used for"
             case .profile:
-                return "The facts Nova has formed about you, each one readable, correctable and deletable"
+                return "Your name and the handles people use for you, which Nova uses to tell what you owe from what others owe you"
             case .data:
                 return "Everything in your memory, with ways to export or erase it"
             }
@@ -141,6 +141,28 @@ final class InspectorModel: ObservableObject {
         var counts: DeleteCounts?
         var deleting = false
         var failed = false
+    }
+
+    // MARK: Profile
+
+    /// nil until Nova answers.
+    @Published private(set) var profile: Profile?
+    /// The edit in progress. Kept here rather than in the view so a poll
+    /// that lands mid-edit cannot reset it.
+    @Published var draftName = ""
+    @Published private(set) var draftAliases: [String] = []
+    @Published private(set) var savingProfile = false
+    /// Nova's reason for refusing the last save, shown under the form.
+    @Published private(set) var profileError: String?
+
+    var profileChanged: Bool {
+        draftName.trimmingCharacters(in: .whitespacesAndNewlines) != (profile?.name ?? "")
+            || draftAliases != (profile?.aliases ?? [])
+    }
+
+    var canSaveProfile: Bool {
+        profile != nil && !savingProfile && profileChanged
+            && !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// The scope being counted before its confirm opens.
@@ -236,6 +258,7 @@ final class InspectorModel: ObservableObject {
         // in the daemon for no one.
         let wantBlocked = pane == .blockedApps
         let wantData = pane == .data
+        let wantProfile = pane == .profile
         Task.detached(priority: .userInitiated) {
             // The visible pane's data first, and on its own. The Activity
             // feeds decrypt up to 100 captures and 100 calls in the daemon
@@ -248,6 +271,9 @@ final class InspectorModel: ObservableObject {
             }
             if wantData, let summary = try? client.dataSummary() {
                 await MainActor.run { if self.dataSummary != summary { self.dataSummary = summary } }
+            }
+            if wantProfile, let profile = try? client.getProfile() {
+                await MainActor.run { self.apply(profile) }
             }
 
             let outcome: Result<(CaptureFeed, CallFeed, DaemonStatus), Error>
@@ -296,6 +322,59 @@ final class InspectorModel: ObservableObject {
         if rules != feed.exclusions { rules = feed.exclusions }
         if skipped != feed.skipped { skipped = feed.skipped }
         blockedLoaded = true
+    }
+
+    /// Replaces the draft only when the user has not started editing, so a
+    /// poll never overwrites what they are typing.
+    private func apply(_ next: Profile) {
+        let editing = profile != nil && profileChanged
+        if profile != next { profile = next }
+        guard !editing else { return }
+        draftName = next.name ?? ""
+        draftAliases = next.aliases
+    }
+
+    // MARK: Profile actions
+
+    /// Adds a handle to the draft. Blank and case-insensitive repeats are
+    /// skipped here so the list does not show a row Nova would drop.
+    func addAlias(_ raw: String) {
+        let alias = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !alias.isEmpty,
+              !draftAliases.contains(where: { $0.lowercased() == alias.lowercased() }) else { return }
+        draftAliases.append(alias)
+        profileError = nil
+    }
+
+    func removeAlias(_ alias: String) {
+        draftAliases.removeAll { $0 == alias }
+        profileError = nil
+    }
+
+    /// Saves, then shows the values as Nova stored them. A refusal keeps the
+    /// draft so the user can correct it.
+    func saveProfile() {
+        guard canSaveProfile else { return }
+        savingProfile = true
+        profileError = nil
+        let client = self.client
+        let name = draftName
+        let aliases = draftAliases
+        Task.detached(priority: .userInitiated) {
+            let result: Result<Profile, Error> = Result { try client.setProfile(name: name, aliases: aliases) }
+            await MainActor.run {
+                self.savingProfile = false
+                switch result {
+                case let .success(saved):
+                    self.profile = saved
+                    self.draftName = saved.name ?? ""
+                    self.draftAliases = saved.aliases
+                    self.toast = "Saved. Nova uses this from the next capture"
+                case let .failure(error):
+                    self.profileError = error.localizedDescription
+                }
+            }
+        }
     }
 
     // MARK: Blocked apps actions
