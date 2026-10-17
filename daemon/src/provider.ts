@@ -357,9 +357,8 @@ export interface CaptureContext {
 /**
  * The user's own name and the handles that refer to them.
  *
- * Configured for now (`NOVA_USER_NAME`, `NOVA_USER_ALIASES`). Once the app
- * ships a login (F6.2) this comes from the signed-in profile instead, and the
- * env vars become the self-host escape hatch.
+ * Set in the app's Profile pane (`identity.ts`), with `NOVA_USER_NAME` and
+ * `NOVA_USER_ALIASES` as the fallback when nothing is stored.
  */
 export interface UserIdentity {
   name: string;
@@ -459,7 +458,7 @@ export function parseDigestSummary(raw: string, input: DigestSummaryInput): Dige
 }
 
 /**
- * Reads the configured identity, or undefined when none is set.
+ * Reads the identity from the env vars, or undefined when none is set.
  *
  * Undefined is a supported state, not an error: the prompts degrade to not
  * claiming a direction rather than guessing one, which is the F4.5-correct
