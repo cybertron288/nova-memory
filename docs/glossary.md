@@ -20,8 +20,8 @@ single self-contained sentence ("Jordan asked for the Q3 deck by Friday"). About
 one idea each, which is exactly what semantic search works best on.
 
 **Entity / fact / open loop** — Nova's own layer on top: people, projects, and
-commitments, derived from derivatives. The reference app has no equivalent; this
-is where Nova's "closes your open loops" feature lives.
+commitments, derived from derivatives. This is where Nova's "closes your open
+loops" feature lives.
 
 ---
 
@@ -78,8 +78,8 @@ need the field key. Sensitive columns (captured text, window titles, URLs) get
 this treatment.
 
 **Keychain** — macOS's secure store for secrets. Nova's encryption keys live
-here, generated per install. The reference app hardcoded one key into every copy
-of the app — anyone could decrypt anyone's database. Nova must not repeat that.
+here, generated per install. A key compiled into the app would be the same in
+every copy, so anyone could decrypt anyone's database.
 
 **Cost note:** both encryption layers together add about **3 ms per search** —
 roughly 0.2% of query time. Privacy here is nearly free; do not trade it away
