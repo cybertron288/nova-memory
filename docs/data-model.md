@@ -216,6 +216,7 @@ Keys in use:
 | `retention_memory_days` | `setRetention` (`forget.ts`) | A number of days, or `"forever"`. Absent means forever. |
 | `retention_last_sweep` | `sweepRetention` (`forget.ts`) | JSON: `{ at, rawRemoved, deleted: { captures, memories, loops } }`. |
 | `capture_paused` | `pause` / `resume` ops (`control.ts`) | `"1"` or `"0"`. Read at daemon start, so a pause survives a restart. |
+| `user_identity` | `set_profile` op (`identity.ts`) | `encryptField` of JSON `{ name, aliases }`. Field-encrypted: a name and emails are personal data. Absent means fall back to `NOVA_USER_NAME` / `NOVA_USER_ALIASES`. Not capture-derived, so a delete leaves it. |
 
 ### 2.11 `provider_calls`
 
@@ -390,6 +391,13 @@ Rules:
 ```
 
 A range needs `from < to`, both non-negative numbers.
+
+**Profile**
+
+| Op | Parameters | Result |
+|---|---|---|
+| `get_profile` | none | `{ name, aliases, source }`. `name` is `null` when nothing is set. `source` is `app` (stored), `env` (`NOVA_USER_NAME` / `NOVA_USER_ALIASES`) or `none`. |
+| `set_profile` | `name` (string), `aliases` (array of strings) | The same shape as `get_profile`, with the stored values. Name and aliases are trimmed; blank and case-insensitive duplicate aliases are dropped. Refused when the name is empty or over 100 characters, an alias is over 200 characters, or more than 20 aliases remain. |
 
 ## 5. MCP tools
 

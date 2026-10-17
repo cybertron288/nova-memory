@@ -232,6 +232,8 @@ is **dead config** — don't infer the provider in use from its presence.
 not known, return only unambiguous loops". A wrong identity is worse than none —
 it inverts every loop silently. `NOVA_USER_ALIASES` resolves handles, without
 which a DM's author is unresolvable and its loops are dropped by gate 3.
+An identity saved in the Profile pane (`store_metadata.user_identity`,
+`identity.ts`) wins over both vars; eval keeps reading the env.
 
 `providerFromEnv` never throws at construction, because `nova mcp` must give
 Claude Desktop a tool error rather than a dead connector. `nova start` therefore

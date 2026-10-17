@@ -377,7 +377,7 @@ prompt states them, because the model still breaks them at temperature 0:
    the lines this version added. Otherwise a notes-to-self chat raises its
    whole backlog on every read.
 3. **Direction fits the author.** When the user's identity is configured
-   (`NOVA_USER_NAME`, `NOVA_USER_ALIASES`), the direction must fit who wrote
+   (the Profile pane, or `NOVA_USER_NAME` / `NOVA_USER_ALIASES`), the direction must fit who wrote
    the evidence line. The user's line can be `i_owe` or `owed_to_me`. Another
    person's line can be `owed_to_me` or `unanswered`. A line with no
    recognizable author is dropped. `stalled` is exempt.

@@ -36,10 +36,11 @@ Open `.env` and fill in one provider option:
 - **Option A:** set `GEMINI_API_KEY`.
 - **Option B:** set all six `NOVA_CHAT_*` and `NOVA_EMBED_*` variables.
 
-Also set `NOVA_USER_NAME`, and `NOVA_USER_ALIASES` if people address you by
-other names or handles. Nova uses these to tell what you owe from what others
-owe you. Without them, Nova keeps only the open loops whose direction the text
-makes plain.
+Then set your name, and any other names or handles people use for you, in
+Your Space → Profile once the app is running. Nova uses these to tell what you
+owe from what others owe you. Without them, Nova keeps only the open loops
+whose direction the text makes plain. `NOVA_USER_NAME` and `NOVA_USER_ALIASES`
+in `.env` also work, and the Profile pane overrides them.
 
 `.env` lives at the repository root. `daemon/.env` is a symlink to it, because
 Bun loads `.env` from the directory it runs in. Never commit `.env`.
