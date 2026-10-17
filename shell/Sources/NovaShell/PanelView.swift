@@ -163,8 +163,8 @@ struct PanelView: View {
             .frame(maxHeight: Nova.listMaxHeight)
             .mask { if model.overflowing { edgeFadeMask } else { Rectangle() } }
             .overlay(alignment: .top) { Rectangle().fill(Nova.rule).frame(height: 1) }
-            .onChange(of: model.focusIndex) { _, index in
-                guard let id = model.rows[safe: index]?.loop.id else { return }
+            .onChange(of: model.scrollRequest) {
+                guard let id = model.rows[safe: model.focusIndex]?.loop.id else { return }
                 withAnimation(Nova.motionQuick) { proxy.scrollTo(id, anchor: .center) }
             }
         }

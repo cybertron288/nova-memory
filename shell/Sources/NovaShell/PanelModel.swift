@@ -117,6 +117,10 @@ final class PanelModel: ObservableObject {
     @Published private(set) var failure: String?
     @Published private(set) var loaded = false
     @Published var focusIndex = 0
+    /// Bumped when focus moves by keyboard or on open, the only moves the list
+    /// scrolls for. Hover also moves focus, and scrolling to it dragged the
+    /// list along under the pointer.
+    @Published private(set) var scrollRequest = 0
 
     /// Set when the panel should close itself — after the last loop is cleared.
     var onRequestClose: (() -> Void)?
@@ -182,6 +186,7 @@ final class PanelModel: ObservableObject {
     func panelDidOpen() {
         isOpen = true
         focusIndex = 0
+        scrollRequest += 1
         refresh()
         poll?.invalidate()
         // 5s while visible. Loops change on a 15s extraction tick, so polling a
@@ -310,6 +315,7 @@ final class PanelModel: ObservableObject {
         }
         // Wrapping otherwise — a list this short has no edges worth enforcing.
         focusIndex = (focusIndex + delta + rows.count) % rows.count
+        scrollRequest += 1
         syncFocus()
     }
 
