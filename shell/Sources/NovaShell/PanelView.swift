@@ -477,7 +477,9 @@ private struct LoopRowView: View {
         .frame(maxHeight: row.collapsed ? 0 : .infinity)
         .clipped()
         .contentShape(Rectangle())
-        .onHover { if $0 { model.hover(row) } }
+        // Continuous, so the first real mouse move after keyboard use takes
+        // the row already under the pointer without leaving it first.
+        .onContinuousHover { if case .active = $0 { model.hover(row) } }
         .onTapGesture { model.click(row) }
         .animation(row.flaring ? Nova.ease(0.12) : Nova.motionBase, value: row.background)
         .animation(Nova.motionBase, value: row.leaving)

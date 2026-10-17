@@ -121,6 +121,10 @@ final class PanelModel: ObservableObject {
     /// scrolls for. Hover also moves focus, and scrolling to it dragged the
     /// list along under the pointer.
     @Published private(set) var scrollRequest = 0
+    /// Whether the pointer or the keyboard drives focus. ↑/↓ hands focus to the
+    /// keyboard until the mouse really moves: a keyboard scroll slides rows
+    /// under a still pointer, and hover would pull focus back to that row.
+    private var pointerDriven = true
 
     /// Set when the panel should close itself — after the last loop is cleared.
     var onRequestClose: (() -> Void)?
@@ -369,9 +373,13 @@ final class PanelModel: ObservableObject {
     func hover(_ row: Row) {
         // Hover moves focus only in plain mode: stealing it mid-confirm would
         // let a stray mouse move dismiss the wrong loop.
-        guard currentMode == .plain, let index = rows.firstIndex(where: { $0.id == row.id }) else { return }
+        guard pointerDriven, currentMode == .plain,
+              let index = rows.firstIndex(where: { $0.id == row.id }), index != focusIndex else { return }
         focus(index)
     }
+
+    /// The mouse moved or scrolled: hover drives focus again.
+    func pointerMoved() { pointerDriven = true }
 
     /// A click focuses a row and toggles its detail. It does not resolve it.
     ///
@@ -460,8 +468,8 @@ final class PanelModel: ObservableObject {
             }
             return true
 
-        case .down: moveFocus(by: 1); return true
-        case .up: moveFocus(by: -1); return true
+        case .down: pointerDriven = false; moveFocus(by: 1); return true
+        case .up: pointerDriven = false; moveFocus(by: -1); return true
 
         case .enter:
             switch currentMode {
