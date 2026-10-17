@@ -160,8 +160,9 @@ final class InspectorModel: ObservableObject {
             || draftAliases != (profile?.aliases ?? [])
     }
 
+    /// Unchanged values from `.env` can still be saved, to keep them in the app.
     var canSaveProfile: Bool {
-        profile != nil && !savingProfile && profileChanged
+        profile != nil && !savingProfile && (profileChanged || profile?.source == .env)
             && !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
