@@ -34,8 +34,8 @@ Partly, with a hosted provider:
 - Capture keeps running and stores what it reads.
 - Extraction waits. Captures wait in the queue and are processed when the
   network returns. A network outage does not count as a failed attempt.
-- `get_open_loops` over MCP works offline. `search_memory` does not, because
-  it must embed your query.
+- `get_open_loops` and `get_timeline` over MCP work offline. `search_memory`
+  does not, because it must embed your query.
 
 With a local model server for both chat and embeddings, Nova works fully
 offline. See [providers.md](providers.md#local-models).
@@ -116,15 +116,17 @@ done, snooze it, or dismiss it for good.
 ## Why does Nova need my name?
 
 To tell which side of a conversation is yours. "I'll send it tomorrow" is
-something you owe only if you wrote it. Set `NOVA_USER_NAME`, and
-`NOVA_USER_ALIASES` for other names and handles, in `.env`. Without them, Nova
-keeps only loops whose direction the text makes plain.
+something you owe only if you wrote it. Set your name and handles in Your
+Space → Profile, or with `NOVA_USER_NAME` and `NOVA_USER_ALIASES` in `.env`.
+The Profile pane wins when both are set. Without them, Nova keeps only loops
+whose direction the text makes plain.
 
 Your name and aliases are sent to your chat provider with each loop request.
 
 ## Which AI apps can use Nova?
 
-Any MCP client. Nova serves two tools: `search_memory` and `get_open_loops`.
+Any MCP client. Nova serves three tools: `search_memory`, `get_open_loops` and
+`get_timeline`.
 [install.md](install.md#7-connect-an-ai-app-over-mcp) shows the setup for
 Claude Code and Claude Desktop.
 

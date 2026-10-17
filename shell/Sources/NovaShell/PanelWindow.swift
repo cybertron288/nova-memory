@@ -77,6 +77,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var keyMonitor: Any?
     private var outsideClickMonitor: Any?
     private var clickInWindowMonitor: Any?
+    private var pointerMonitor: Any?
 
     init(model: PanelModel) {
         self.model = model
@@ -205,13 +206,25 @@ final class PanelController: NSObject, NSWindowDelegate {
             self.hide()
             return nil
         }
+
+        // A real move or scroll of the mouse, which a keyboard scroll sliding
+        // rows under a still pointer never produces.
+        window?.acceptsMouseMovedEvents = true
+        pointerMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .scrollWheel, .leftMouseDown]
+        ) { [weak self] event in
+            if let self, event.window === self.window { self.model.pointerMoved() }
+            return event
+        }
     }
 
     private func removeMonitors() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
         if let clickInWindowMonitor { NSEvent.removeMonitor(clickInWindowMonitor) }
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
         clickInWindowMonitor = nil
+        pointerMonitor = nil
         keyMonitor = nil
         outsideClickMonitor = nil
     }

@@ -43,7 +43,7 @@ Milestones (M) are in `roadmap.md`.
 |---|---|---|
 | F3.1 | Local MCP server for desktop clients. | partial — stdio only; there is no HTTP transport |
 | F3.2 | Remote MCP endpoint for web and mobile clients. | not built |
-| F3.3 | MCP tools: `search_memory`, `get_timeline`, `get_open_loops`, `get_entity`, `get_daily_summary`. | partial — `search_memory` and `get_open_loops` only |
+| F3.3 | MCP tools: `search_memory`, `get_timeline`, `get_open_loops`, `get_entity`, `get_daily_summary`. | partial — `search_memory`, `get_open_loops` and `get_timeline` |
 | F3.4 | Every result carries provenance: time, source app, and window title or URL (R9). | built |
 | F3.5 | In-app setup instructions for MCP clients, with copy buttons. | not built |
 

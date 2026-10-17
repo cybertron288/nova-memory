@@ -39,6 +39,7 @@ import {
 } from "./forget";
 import { listCalls, callTotals } from "./calls";
 import { countCapturesSince, listRecentCaptures } from "./captures";
+import { parseIdentity, storeIdentity, userIdentity } from "./identity";
 
 export const CONTROL_SOCKET_NAME = "control.sock";
 
@@ -76,6 +77,7 @@ const OPS = new Set([
   "list_exclusions", "add_exclusion", "remove_exclusion", "list_calls",
   "list_captures", "list_blocked", "list_parked", "retry_parked",
   "data_summary", "count_for_delete", "delete_data", "set_retention",
+  "get_profile", "set_profile",
 ]);
 const ACTIONS = new Set<string>(["done", "snooze", "dismiss"]);
 const EXCLUSION_KINDS = new Set<string>(["app", "domain"]);
@@ -103,6 +105,12 @@ export function storedPause(db: Database): boolean {
   const row = db.prepare("SELECT value FROM store_metadata WHERE key='capture_paused'").get() as
     { value: string } | null;
   return row?.value === "1";
+}
+
+/** The Profile pane's view of the identity, and where it came from. */
+function profile(db: Database, key: Buffer) {
+  const { identity, source } = userIdentity(db, key);
+  return { name: identity?.name ?? null, aliases: identity?.aliases ?? [], source };
 }
 
 function storePause(db: Database, paused: boolean): void {
@@ -280,6 +288,18 @@ export function handleControlLine(
         if (typeof r === "string") return reply(id, { ok: false, error: r });
         setRetention(db, r);
         return reply(id, { ok: true, result: getRetention(db) });
+      }
+
+      case "get_profile":
+        return reply(id, { ok: true, result: profile(db, key) });
+
+      case "set_profile": {
+        const identity = parseIdentity(msg.name, msg.aliases);
+        if (typeof identity === "string") return reply(id, { ok: false, error: identity });
+        storeIdentity(db, key, identity);
+        // A count only: the log is plaintext and must not name the user.
+        console.error(`[profile] updated: ${identity.aliases.length} handles`);
+        return reply(id, { ok: true, result: profile(db, key) });
       }
 
       case "list_blocked":

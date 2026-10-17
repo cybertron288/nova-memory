@@ -19,7 +19,8 @@ precision was re-measured on real embeddings at the end of M1 (D6).
 **M2 — Open loops and the app. In progress.**
 Built: loop extraction, auto-resolution, done/snooze/dismiss, precision
 rating, the digest card, the menu bar app, and Your Space (Activity, Blocked
-apps, Your data). Remaining work is listed under "Next".
+apps, Permissions, Profile, Your data). Remaining work is listed under
+"Next".
 
 **M3 — Wider release. Not started.**
 A signed build that people other than developers can install, the remaining
@@ -31,18 +32,13 @@ memory between people (F7). Neither is scheduled.
 
 ## Next
 
-- **Profile pane.** The user's name and handles, editable in the app rather
-  than in `.env`. Loop direction depends on them (D24).
-- **Permissions pane.** Shows the Accessibility and Screen Recording grants
-  and opens the matching System Settings page.
 - **Digest notification.** One macOS notification when the morning digest
   has loops, none when it has not (F4.3).
 - **Offline handling.** Detect when the network is down, show how many
   captures are waiting, and drain them on reconnect without spending retries
   (F1.6, D7).
 - **Nightly consolidation.** Merge duplicate facts, decay stale ones, and
-  write a daily summary. Adds `get_daily_summary` and `get_timeline` (F2.5,
-  F3.3).
+  write a daily summary. Adds `get_daily_summary` (F2.5, F3.3).
 - **Onboarding.** A first-run window: permissions, capture policy, provider
   setup with keys in the Keychain, and MCP setup. Capture starts only when it
   is finished (F5.1, F6.2, F3.5).

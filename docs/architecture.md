@@ -377,7 +377,7 @@ prompt states them, because the model still breaks them at temperature 0:
    the lines this version added. Otherwise a notes-to-self chat raises its
    whole backlog on every read.
 3. **Direction fits the author.** When the user's identity is configured
-   (`NOVA_USER_NAME`, `NOVA_USER_ALIASES`), the direction must fit who wrote
+   (the Profile pane, or `NOVA_USER_NAME` / `NOVA_USER_ALIASES`), the direction must fit who wrote
    the evidence line. The user's line can be `i_owe` or `owed_to_me`. Another
    person's line can be `owed_to_me` or `unanswered`. A line with no
    recognizable author is dropped. `stalled` is exempt.
@@ -456,8 +456,9 @@ subprocess. Provider settings go in the client's `env` block for the server.
 |---|---|---|
 | `search_memory` | `query` (string, required), `limit` (number, default 10) | Yes. One embedding of the query. |
 | `get_open_loops` | `direction` (`i_owe`, `owed_to_me`, `unanswered`, `stalled`, `any`; default `any`), `limit` (number, default 20, clamped to 1–100) | No. Reads stored loops. |
+| `get_timeline` | `from` (ISO 8601 date or date-time, required), `to` (same, default now; a bare date includes that day), `limit` (number, default 50, clamped to 1–200) | No. Reads stored memories. |
 
-Both tools return one text block. Each result line carries its time and source
+Each tool returns one text block. Each result line carries its time and source
 so the model can cite it. Loop lines also carry the loop id, which
 `nova done|snooze|dismiss` accepts.
 
@@ -515,7 +516,8 @@ Main parts:
 - `YourDataView.swift`: counts, delete and retention.
 - `BlockedAppsView.swift`, `AddRuleForm.swift`: hard and user exclusions, with
   skip counts.
-- `Permission.swift`: the Accessibility permission check.
+- `Permission.swift`, `PermissionsView.swift`: the Accessibility and Screen
+  Recording checks, and the Permissions pane that shows them.
 
 Visual rules are in [design/design-system.md](design/design-system.md) and
 [design/motion-spec.md](design/motion-spec.md).

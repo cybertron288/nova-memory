@@ -9,16 +9,7 @@ import SwiftUI
 
 @MainActor
 final class InspectorModel: ObservableObject {
-    /// The panes of Your Space. Activity is the only one built; the others
-    /// are named because the menu already promises the container, and a user
-    /// who opens it should see the shape of what is coming rather than a
-    /// window with one unexplained list.
-    ///
-    /// An unbuilt pane says so in a line. That is the opposite of D19's ruling
-    /// against placeholders, and deliberately so: D19 was about a surface read
-    /// in two seconds, where an empty heading spends attention the user did
-    /// not offer. This window is opened on purpose to look around, and
-    /// hiding the roadmap from someone auditing the app reads as evasion.
+    /// The panes of Your Space, in sidebar order.
     enum Pane: CaseIterable {
         case activity, blockedApps, permissions, profile, data
 
@@ -29,28 +20,6 @@ final class InspectorModel: ObservableObject {
             case .permissions: return "Permissions"
             case .profile: return "Profile"
             case .data: return "Your data"
-            }
-        }
-
-        var built: Bool { self == .activity || self == .blockedApps || self == .data }
-
-        /// The sidebar lists only built panes. Permissions and Profile stay as cases
-        /// so their promises are ready, but an unbuilt pane is not shown.
-        static var shown: [Pane] { allCases.filter(\.built) }
-
-        /// What the pane will hold, shown while it is unbuilt.
-        var promise: String {
-            switch self {
-            case .activity:
-                return ""
-            case .blockedApps:
-                return "Apps and sites Nova will never read, and a count of the windows it skipped because of them"
-            case .permissions:
-                return "Each macOS permission Nova holds, when you granted it, and what it is used for"
-            case .profile:
-                return "The facts Nova has formed about you, each one readable, correctable and deletable"
-            case .data:
-                return "Everything in your memory, with ways to export or erase it"
             }
         }
     }
@@ -143,6 +112,47 @@ final class InspectorModel: ObservableObject {
         var failed = false
     }
 
+    // MARK: Profile
+
+    /// nil until Nova answers.
+    @Published private(set) var profile: Profile?
+    /// The edit in progress. Kept here rather than in the view so a poll
+    /// that lands mid-edit cannot reset it.
+    @Published var draftName = ""
+    @Published private(set) var draftAliases: [String] = []
+    @Published private(set) var savingProfile = false
+    /// Nova's reason for refusing the last save, shown under the form.
+    @Published private(set) var profileError: String?
+
+    // MARK: Permissions
+
+    /// Read from macOS in this process, never asked of Nova, so the pane has
+    /// no unreachable state of its own.
+    @Published private(set) var grants = InspectorModel.readGrants()
+    private var activation: NSObjectProtocol?
+
+    nonisolated private static func readGrants() -> [NovaPermission: Bool] {
+        Dictionary(uniqueKeysWithValues: NovaPermission.allCases.map { ($0, $0.granted) })
+    }
+
+    /// Also run on activation: the user flips the switch in System Settings
+    /// and comes back, and the pane should already agree.
+    private func refreshGrants() {
+        let next = Self.readGrants()
+        if grants != next { grants = next }
+    }
+
+    var profileChanged: Bool {
+        draftName.trimmingCharacters(in: .whitespacesAndNewlines) != (profile?.name ?? "")
+            || draftAliases != (profile?.aliases ?? [])
+    }
+
+    /// Unchanged values from `.env` can still be saved, to keep them in the app.
+    var canSaveProfile: Bool {
+        profile != nil && !savingProfile && (profileChanged || profile?.source == .env)
+            && !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// The scope being counted before its confirm opens.
     private var pendingDelete: DeleteScope?
     private static let countGrace: Duration = .milliseconds(300)
@@ -210,6 +220,11 @@ final class InspectorModel: ObservableObject {
 
     func start() {
         active = true
+        activation = activation ?? NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main,
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshGrants() }
+        }
         refresh()
     }
 
@@ -217,6 +232,8 @@ final class InspectorModel: ObservableObject {
     /// decrypts a page of rows in the daemon for no one.
     func stop() {
         active = false
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+        activation = nil
         poll?.invalidate()
         poll = nil
         interval = 0
@@ -228,6 +245,7 @@ final class InspectorModel: ObservableObject {
     }
 
     func refresh() {
+        refreshGrants()
         let client = self.client
         let limit = Self.pageSize
         let since = Int64(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1000)
@@ -236,6 +254,7 @@ final class InspectorModel: ObservableObject {
         // in the daemon for no one.
         let wantBlocked = pane == .blockedApps
         let wantData = pane == .data
+        let wantProfile = pane == .profile
         Task.detached(priority: .userInitiated) {
             // The visible pane's data first, and on its own. The Activity
             // feeds decrypt up to 100 captures and 100 calls in the daemon
@@ -248,6 +267,9 @@ final class InspectorModel: ObservableObject {
             }
             if wantData, let summary = try? client.dataSummary() {
                 await MainActor.run { if self.dataSummary != summary { self.dataSummary = summary } }
+            }
+            if wantProfile, let profile = try? client.getProfile() {
+                await MainActor.run { self.apply(profile) }
             }
 
             let outcome: Result<(CaptureFeed, CallFeed, DaemonStatus), Error>
@@ -298,6 +320,59 @@ final class InspectorModel: ObservableObject {
         blockedLoaded = true
     }
 
+    /// Replaces the draft only when the user has not started editing, so a
+    /// poll never overwrites what they are typing.
+    private func apply(_ next: Profile) {
+        let editing = profile != nil && profileChanged
+        if profile != next { profile = next }
+        guard !editing else { return }
+        draftName = next.name ?? ""
+        draftAliases = next.aliases
+    }
+
+    // MARK: Profile actions
+
+    /// Adds a handle to the draft. Blank and case-insensitive repeats are
+    /// skipped here so the list does not show a row Nova would drop.
+    func addAlias(_ raw: String) {
+        let alias = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !alias.isEmpty,
+              !draftAliases.contains(where: { $0.lowercased() == alias.lowercased() }) else { return }
+        draftAliases.append(alias)
+        profileError = nil
+    }
+
+    func removeAlias(_ alias: String) {
+        draftAliases.removeAll { $0 == alias }
+        profileError = nil
+    }
+
+    /// Saves, then shows the values as Nova stored them. A refusal keeps the
+    /// draft so the user can correct it.
+    func saveProfile() {
+        guard canSaveProfile else { return }
+        savingProfile = true
+        profileError = nil
+        let client = self.client
+        let name = draftName
+        let aliases = draftAliases
+        Task.detached(priority: .userInitiated) {
+            let result: Result<Profile, Error> = Result { try client.setProfile(name: name, aliases: aliases) }
+            await MainActor.run {
+                self.savingProfile = false
+                switch result {
+                case let .success(saved):
+                    self.profile = saved
+                    self.draftName = saved.name ?? ""
+                    self.draftAliases = saved.aliases
+                    self.toast = "Saved. Nova uses this from the next capture"
+                case let .failure(error):
+                    self.profileError = error.localizedDescription
+                }
+            }
+        }
+    }
+
     // MARK: Blocked apps actions
 
     /// Switches pane and fetches what that pane needs.
@@ -314,7 +389,7 @@ final class InspectorModel: ObservableObject {
         // direction is what makes the window feel navigated rather than
         // reloaded, so it is decided here, where the old and new positions
         // are both known.
-        let all = Pane.shown
+        let all = Pane.allCases
         if let from = all.firstIndex(of: pane), let to = all.firstIndex(of: next) {
             paneDirection = to > from ? 1 : -1
         }
@@ -322,7 +397,6 @@ final class InspectorModel: ObservableObject {
         // and wrapping the assignment would animate the sidebar wash with the
         // pane's longer curve instead of its own 140ms.
         pane = next
-        guard next.built else { return }
         // Already have it: a revisit shows the rows it had and refreshes
         // underneath, rather than blanking back to "Asking Nova".
         if next == .blockedApps && blockedLoaded { refresh(); return }

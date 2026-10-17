@@ -216,6 +216,7 @@ Keys in use:
 | `retention_memory_days` | `setRetention` (`forget.ts`) | A number of days, or `"forever"`. Absent means forever. |
 | `retention_last_sweep` | `sweepRetention` (`forget.ts`) | JSON: `{ at, rawRemoved, deleted: { captures, memories, loops } }`. |
 | `capture_paused` | `pause` / `resume` ops (`control.ts`) | `"1"` or `"0"`. Read at daemon start, so a pause survives a restart. |
+| `user_identity` | `set_profile` op (`identity.ts`) | `encryptField` of JSON `{ name, aliases }`. Field-encrypted: a name and emails are personal data. Absent means fall back to `NOVA_USER_NAME` / `NOVA_USER_ALIASES`. Not capture-derived, so a delete leaves it. |
 
 ### 2.11 `provider_calls`
 
@@ -391,9 +392,16 @@ Rules:
 
 A range needs `from < to`, both non-negative numbers.
 
+**Profile**
+
+| Op | Parameters | Result |
+|---|---|---|
+| `get_profile` | none | `{ name, aliases, source }`. `name` is `null` when nothing is set. `source` is `app` (stored), `env` (`NOVA_USER_NAME` / `NOVA_USER_ALIASES`) or `none`. |
+| `set_profile` | `name` (string), `aliases` (array of strings) | The same shape as `get_profile`, with the stored values. Name and aliases are trimmed; blank and case-insensitive duplicate aliases are dropped. Refused when the name is empty or over 100 characters, an alias is over 200 characters, or more than 20 aliases remain. |
+
 ## 5. MCP tools
 
-`nova mcp` serves two tools over stdio. Server name `nova`, version `0.1.0`.
+`nova mcp` serves three tools over stdio. Server name `nova`, version `0.1.0`.
 Both return one `text` content block.
 
 ### 5.1 `search_memory`
@@ -438,3 +446,23 @@ Output: one entry per loop, newest first, or a sentence saying there are none.
 The lead text maps `i_owe` to "You said you would", `owed_to_me` to "Someone
 owes you", `unanswered` to "Unanswered" and `stalled` to "Stalled". This tool
 makes no provider call.
+
+### 5.3 `get_timeline`
+
+Input:
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `from` | ISO 8601 date or date-time | yes | |
+| `to` | ISO 8601 date or date-time | no | now |
+| `limit` | number | no | 50, clamped to 1–200 |
+
+A bare date or a date-time without an offset is the Mac's local time. A bare
+`from` date starts at that day's midnight; a bare `to` date includes the whole
+day. A date-time `to` is exclusive. An unparsable date, `from` not before
+`to`, or a `limit` that is not a positive integer is refused with a tool error.
+
+Output: memories captured in the period, oldest first, each with its time and
+source, or a sentence saying there are none. When `limit` cuts the period
+short, a first line says how many of how many are shown. This tool makes no
+provider call.

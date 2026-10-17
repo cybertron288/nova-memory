@@ -178,8 +178,8 @@ per-install token (R8 item 6).
 **Why.** The model must be able to cite a memory, and the user must be able
 to check it.
 
-**Status.** `search_memory` and `get_open_loops` are built, over stdio. The
-other three are not (see `features.md`, F3.3).
+**Status.** `search_memory`, `get_open_loops` and `get_timeline` are built,
+over stdio. The other two are not (see `features.md`, F3.3).
 
 ---
 
