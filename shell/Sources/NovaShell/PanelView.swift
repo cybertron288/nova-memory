@@ -292,7 +292,7 @@ struct PanelView: View {
                     .multilineTextAlignment(.center)
             }
             ChoiceChip(text: "Open Settings", tint: Nova.accent) {
-                AccessibilityPermission.openSettings()
+                NovaPermission.accessibility.openSettings()
             }
             .font(Nova.bodyEmphasis)
         }

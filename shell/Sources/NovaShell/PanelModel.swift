@@ -237,7 +237,7 @@ final class PanelModel: ObservableObject {
                 }
             }()
             await MainActor.run {
-                self.accessibilityDenied = !AccessibilityPermission.granted
+                self.accessibilityDenied = !NovaPermission.accessibility.granted
                 self.apply(outcome)
                 if let fetched {
                     // Animated, so the skeleton-to-list swap grows the panel
@@ -436,7 +436,7 @@ final class PanelModel: ObservableObject {
         // swallowed rather than acting on a list that is not on screen.
         if blockedOnPermission {
             switch key {
-            case .enter: AccessibilityPermission.openSettings()
+            case .enter: NovaPermission.accessibility.openSettings()
             case .escape: onRequestClose?()
             default: break
             }
