@@ -158,7 +158,6 @@ final class PanelModel: ObservableObject {
     var showSkeleton: Bool { !loaded && failure == nil }
     var showCount: Bool { !daemonDown && !accessibilityDenied && loaded }
     var showFooter: Bool { !rows.isEmpty }
-    var overflowing: Bool { rows.count > 6 }
 
     var apertureState: ApertureState {
         if needsAttention { return .attention }

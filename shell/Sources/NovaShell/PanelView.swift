@@ -161,7 +161,6 @@ struct PanelView: View {
             }
             .scrollIndicators(.hidden)
             .frame(maxHeight: Nova.listMaxHeight)
-            .mask { if model.overflowing { edgeFadeMask } else { Rectangle() } }
             .overlay(alignment: .top) { Rectangle().fill(Nova.rule).frame(height: 1) }
             .onChange(of: model.scrollRequest) {
                 guard let id = model.rows[safe: model.focusIndex]?.loop.id else { return }
@@ -194,19 +193,6 @@ struct PanelView: View {
             .padding(.horizontal, Nova.space6)
             .padding(.top, Nova.space5)
             .padding(.bottom, 2)
-    }
-
-    /// The design masks the list's edges at 24px when it overflows, so rows
-    /// fade out rather than being cut by a hard edge. A mask, not a painted
-    /// gradient: over a translucent ground a painted fade shows as a band.
-    private var edgeFadeMask: some View {
-        VStack(spacing: 0) {
-            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                .frame(height: 24)
-            Rectangle()
-            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 24)
-        }
     }
 
     // MARK: - Memory
