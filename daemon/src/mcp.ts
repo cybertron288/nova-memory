@@ -1,5 +1,6 @@
-// MCP server (spec 4.4). Two tools over stdio, which is what Claude Desktop
-// spawns: search_memory (§2.1) and get_open_loops (§2.3, PRD F4).
+// MCP server (spec 4.4). Three tools over stdio, which is what Claude Desktop
+// spawns: search_memory (§2.1), get_open_loops (§2.3, PRD F4) and
+// get_timeline (F3.3).
 //
 // stdout is the protocol wire once StdioServerTransport is connected — every
 // other module in this daemon logs to stderr already (see ingest.ts,
@@ -10,6 +11,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import type { Database } from "bun:sqlite";
 import { searchMemory, type SearchHit } from "./search";
 import { listOpenLoops, type OpenLoop, type LoopDirection } from "./loops";
+import { listMemoriesBetween, type TimelineEntry } from "./memories";
 import type { InferenceProvider } from "./provider";
 
 const LOOP_FILTERS = new Set(["i_owe", "owed_to_me", "unanswered", "stalled", "any"]);
@@ -24,6 +26,46 @@ export function formatHits(hits: SearchHit[]): string {
     const where = h.url ? `${h.app} — ${h.url}` : `${h.app} — ${h.windowTitle}`;
     return `- ${h.text}\n  (${when} · ${where})`;
   }).join("\n");
+}
+
+/** Render a period's memories, saying so when the limit cut it short. */
+export function formatTimeline(items: TimelineEntry[], total: number): string {
+  if (items.length === 0) {
+    return "No memories in this period. Either nothing was captured, or capture was not running at the time.";
+  }
+  const lines = items.map((m) => {
+    const when = new Date(m.capturedAt).toISOString().replace("T", " ").slice(0, 16);
+    const app = m.sourceApp ?? "unknown app";
+    const where = m.url ? `${app} — ${m.url}` : m.windowTitle ? `${app} — ${m.windowTitle}` : app;
+    return `- ${m.text}\n  (${when} · ${where})`;
+  }).join("\n");
+  return total > items.length
+    ? `The first ${items.length} of ${total} memories in this period, oldest first. `
+      + `Ask for a shorter period to see the rest.\n${lines}`
+    : lines;
+}
+
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+/**
+ * An ISO 8601 date or date-time as epoch ms, or null if it is neither. A bare
+ * date is a local day: its start, or with `end` the next day's start, so
+ * `to: "2026-10-14"` includes the whole of the 14th.
+ */
+export function parseInstant(value: string, end: boolean): number | null {
+  const d = DATE.exec(value);
+  if (d) {
+    const [y, m, day] = [Number(d[1]), Number(d[2]) - 1, Number(d[3])];
+    const t = new Date(y, m, day + (end ? 1 : 0));
+    // Rejects 2026-02-30, which Date would roll into March.
+    const check = new Date(y, m, day);
+    if (check.getFullYear() !== y || check.getMonth() !== m || check.getDate() !== day) return null;
+    return t.getTime();
+  }
+  if (!DATETIME.test(value)) return null;
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? null : t;
 }
 
 /**
@@ -105,6 +147,31 @@ export async function serveMcp(
           limit: { type: "number", description: "Maximum results (default 20)" },
         },
       },
+    }, {
+      name: "get_timeline",
+      description:
+        "List what Nova captured from the user's screen on this Mac during a "
+        + "period, oldest first. Use it when the user asks what they did, read or "
+        + "worked on at a time rather than about a topic (e.g. 'what did I do "
+        + "yesterday', 'what was I reading on Monday morning'). Each memory cites "
+        + "its time, source app, and URL or window title. Not a web search.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          from: {
+            type: "string",
+            description: "Start of the period, ISO 8601: a date (2026-10-14) or a date-time "
+              + "(2026-10-14T09:00 or with an offset). A bare date or time is the user's local time.",
+          },
+          to: {
+            type: "string",
+            description: "End of the period, same formats, exclusive for a date-time. A bare date "
+              + "includes that whole day. Default now.",
+          },
+          limit: { type: "number", description: "Maximum results (default 50, at most 200)" },
+        },
+        required: ["from"],
+      },
     }],
   }));
 
@@ -141,6 +208,25 @@ export async function handleToolCall(
     // unlike search_memory, which must embed the query first.
     const loops = listOpenLoops(db, key, { direction, limit });
     return { content: [{ type: "text", text: formatLoops(loops) }] };
+  }
+  if (params.name === "get_timeline") {
+    const args = (params.arguments ?? {}) as { from?: unknown; to?: unknown; limit?: unknown };
+    const from = typeof args.from === "string" ? parseInstant(args.from, false) : null;
+    if (from === null) throw new Error("get_timeline: from must be an ISO 8601 date or date-time");
+    let to = Date.now();
+    if (args.to !== undefined) {
+      const t = typeof args.to === "string" ? parseInstant(args.to, true) : null;
+      if (t === null) throw new Error("get_timeline: to must be an ISO 8601 date or date-time");
+      to = t;
+    }
+    if (from >= to) throw new Error("get_timeline: from must be before to");
+    if (args.limit !== undefined
+        && !(typeof args.limit === "number" && Number.isInteger(args.limit) && args.limit > 0)) {
+      throw new Error("get_timeline: limit must be a positive integer");
+    }
+    // Like get_open_loops, no provider call: this answers offline.
+    const { items, total } = listMemoriesBetween(db, key, from, to, (args.limit as number | undefined) ?? 50);
+    return { content: [{ type: "text", text: formatTimeline(items, total) }] };
   }
   return handleSearchCall(db, key, provider, params);
 }

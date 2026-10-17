@@ -456,8 +456,9 @@ subprocess. Provider settings go in the client's `env` block for the server.
 |---|---|---|
 | `search_memory` | `query` (string, required), `limit` (number, default 10) | Yes. One embedding of the query. |
 | `get_open_loops` | `direction` (`i_owe`, `owed_to_me`, `unanswered`, `stalled`, `any`; default `any`), `limit` (number, default 20, clamped to 1–100) | No. Reads stored loops. |
+| `get_timeline` | `from` (ISO 8601 date or date-time, required), `to` (same, default now; a bare date includes that day), `limit` (number, default 50, clamped to 1–200) | No. Reads stored memories. |
 
-Both tools return one text block. Each result line carries its time and source
+Each tool returns one text block. Each result line carries its time and source
 so the model can cite it. Loop lines also carry the loop id, which
 `nova done|snooze|dismiss` accepts.
 

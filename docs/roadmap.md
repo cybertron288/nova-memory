@@ -39,8 +39,7 @@ memory between people (F7). Neither is scheduled.
   captures are waiting, and drain them on reconnect without spending retries
   (F1.6, D7).
 - **Nightly consolidation.** Merge duplicate facts, decay stale ones, and
-  write a daily summary. Adds `get_daily_summary` and `get_timeline` (F2.5,
-  F3.3).
+  write a daily summary. Adds `get_daily_summary` (F2.5, F3.3).
 - **Onboarding.** A first-run window: permissions, capture policy, provider
   setup with keys in the Keychain, and MCP setup. Capture starts only when it
   is finished (F5.1, F6.2, F3.5).

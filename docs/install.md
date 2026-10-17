@@ -135,10 +135,12 @@ If the counts stay at zero, see [troubleshooting.md](troubleshooting.md).
 
 ## 7. Connect an AI app over MCP
 
-Nova serves two tools over MCP: `search_memory` and `get_open_loops`. The MCP
+Nova serves three tools over MCP: `search_memory`, `get_open_loops` and
+`get_timeline`. The MCP
 server is the same CLI, started with `mcp`. It reads the store directly, so it
 works whether or not the menu bar app is running. `search_memory` needs your
-provider, because it embeds the query. `get_open_loops` works offline.
+provider, because it embeds the query. `get_open_loops` and `get_timeline` work
+offline.
 
 Use the absolute path to Bun. Apps opened from the Finder do not see your
 shell's `PATH`. Find it with `which bun`. It is usually
