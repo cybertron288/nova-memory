@@ -19,7 +19,8 @@ precision was re-measured on real embeddings at the end of M1 (D6).
 **M2 — Open loops and the app. In progress.**
 Built: loop extraction, auto-resolution, done/snooze/dismiss, precision
 rating, the digest card, the menu bar app, and Your Space (Activity, Blocked
-apps, Profile, Your data). Remaining work is listed under "Next".
+apps, Permissions, Profile, Your data). Remaining work is listed under
+"Next".
 
 **M3 — Wider release. Not started.**
 A signed build that people other than developers can install, the remaining
@@ -31,8 +32,6 @@ memory between people (F7). Neither is scheduled.
 
 ## Next
 
-- **Permissions pane.** Shows the Accessibility and Screen Recording grants
-  and opens the matching System Settings page.
 - **Digest notification.** One macOS notification when the morning digest
   has loops, none when it has not (F4.3).
 - **Offline handling.** Detect when the network is down, show how many

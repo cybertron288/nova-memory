@@ -516,7 +516,8 @@ Main parts:
 - `YourDataView.swift`: counts, delete and retention.
 - `BlockedAppsView.swift`, `AddRuleForm.swift`: hard and user exclusions, with
   skip counts.
-- `Permission.swift`: the Accessibility permission check.
+- `Permission.swift`, `PermissionsView.swift`: the Accessibility and Screen
+  Recording checks, and the Permissions pane that shows them.
 
 Visual rules are in [design/design-system.md](design/design-system.md) and
 [design/motion-spec.md](design/motion-spec.md).
