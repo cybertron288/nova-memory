@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { createApp } from "../src/app";
+import { createApp } from "../src/proxy";
 import { hashDevice } from "../src/device";
 import { FakeLedger, fakeDeps, fakeUpstream, mintToken } from "./fakes";
 

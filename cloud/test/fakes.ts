@@ -1,5 +1,5 @@
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
-import type { Deps } from "../src/app";
+import type { Deps } from "../src/proxy";
 import { sessionVerifier } from "../src/session";
 import type { Upstream, UpstreamKind } from "../src/upstream";
 import type { ChatBody, EmbedBody } from "../src/shape";
