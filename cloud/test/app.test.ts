@@ -156,3 +156,31 @@ test("log lines never contain the request content", async () => {
   expect(lines.length).toBeGreaterThan(0);
   expect(lines.some((l) => l.includes("SECRET-CANARY") || l.includes("REPLY-CANARY"))).toBe(false);
 });
+
+// --- /v1/usage ----------------------------------------------------------------
+
+async function getUsage(deps: ReturnType<typeof fakeDeps>, token: string | null) {
+  const headers: Record<string, string> = { "x-nova-device": DEVICE };
+  if (token) headers.authorization = `Bearer ${token}`;
+  return createApp(deps).request("/v1/usage", { headers });
+}
+
+test("usage reports plan, today's use, cap and the next UTC midnight", async () => {
+  const ledger = new FakeLedger();
+  ledger.state = { ...ledger.state, plan: "new", cap: 100_000 };
+  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 2000, out: 500, requests: 3 });
+  ledger.usage.set(`u:u1|${DAY}`, { in: 3000, out: 1000, requests: 5 });
+  const res = await getUsage(fakeDeps({ ledger }), await mintToken({ sub: "u1" }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ plan: "new", usedToday: 4000, capToday: 100_000, resetsAt: "2026-10-22T00:00:00.000Z" });
+});
+
+test("usage needs a session", async () => {
+  expect((await getUsage(fakeDeps(), null)).status).toBe(401);
+});
+
+test("usage never calls the upstream", async () => {
+  const upstream = fakeUpstream(() => Response.json({}));
+  await getUsage(fakeDeps({ upstream }), await mintToken({ sub: "u1" }));
+  expect(upstream.calls).toHaveLength(0);
+});

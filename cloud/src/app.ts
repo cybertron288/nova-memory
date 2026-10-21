@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import type { Config } from "./config";
 import { hashDevice, hashIp } from "./device";
 import { LedgerUnavailable, type Ledger, type LedgerKey } from "./ledger";
-import { dayKey, decide, monthKey } from "./limits";
+import { dayKey, decide, monthKey, nextUtcMidnight } from "./limits";
 import { Unauthorized, type VerifySession } from "./session";
 import { validateChat, validateEmbed, type ChatBody, type EmbedBody, type Shaped } from "./shape";
 import type { Upstream, UpstreamKind } from "./upstream";
@@ -126,6 +126,35 @@ export function createApp(deps: Deps): Hono {
 
   app.post("/v1/chat/completions", forward("chat"));
   app.post("/v1/embeddings", forward("embed"));
+
+  // The app's usage readout and the daemon's free start probe.
+  app.get("/v1/usage", async (c) => {
+    let userId: string;
+    try {
+      userId = (await deps.verifySession(c.req.header("authorization"))).userId;
+    } catch (e) {
+      if (!(e instanceof Unauthorized)) throw e;
+      return c.json({ error: "sign in again" }, 401);
+    }
+    const device = c.req.header("x-nova-device")?.trim();
+    if (!device) return c.json({ error: "x-nova-device is required" }, 400);
+    const now = deps.now();
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    try {
+      const a = await deps.ledger.allowance({
+        userId, deviceHash: hashDevice(device), ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now),
+      });
+      return c.json({
+        plan: a.plan,
+        usedToday: Math.max(a.deviceUsedToday, a.accountUsedToday),
+        capToday: a.cap,
+        resetsAt: new Date(nextUtcMidnight(now)).toISOString(),
+      });
+    } catch (e) {
+      if (!(e instanceof LedgerUnavailable)) throw e;
+      return c.json({ error: "Nova Cloud is unavailable" }, 503, { "retry-after": LEDGER_RETRY_S });
+    }
+  });
 
   return app;
 }

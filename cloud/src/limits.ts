@@ -10,10 +10,13 @@ const DAY_MS = 86_400_000;
 /** The ceiling's retry: hourly, matching the daemon's longest quota backoff. */
 const CEILING_RETRY_S = 3600;
 
+export function nextUtcMidnight(now: number): number {
+  return Math.floor(now / DAY_MS) * DAY_MS + DAY_MS;
+}
+
 /** Never 0: a Retry-After of 0 tells the daemon to retry at once. */
 export function secondsUntilUtcMidnight(now: number): number {
-  const midnight = Math.floor(now / DAY_MS) * DAY_MS + DAY_MS;
-  return Math.max(1, Math.ceil((midnight - now) / 1000));
+  return Math.max(1, Math.ceil((nextUtcMidnight(now) - now) / 1000));
 }
 
 export function dayKey(now: number): string {
