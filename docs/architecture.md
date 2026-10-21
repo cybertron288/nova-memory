@@ -556,8 +556,11 @@ These are designed or planned but are not in the code:
   not yet run on a Mac without a source checkout (D27 in
   [deferred-tasks.md](deferred-tasks.md)).
 - **Automatic updates.**
-- **Hosted relay, accounts, remote MCP.** There is no Nova server. MCP is
-  local stdio only (D28).
+- **Nova Cloud sign-in in the app.** The proxy (`cloud/`) and the daemon side
+  (`cloud.ts`, `session.ts`, `account.ts`, the `set_session`, `sign_out` and
+  `account` ops) are built; the shell's sign-in sheet is not
+  ([nova-cloud-design.md](nova-cloud-design.md)). Remote MCP is not planned:
+  MCP is local stdio only.
 - **Entity graph.** People, projects and facts as tables are designed in
   [entity-graph-design.md](entity-graph-design.md) but not built. Loops store
   the counterparty as a plain name string (D11).

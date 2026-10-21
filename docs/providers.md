@@ -16,7 +16,11 @@ The app starts it again within a second.
 1. If **any** of the six `NOVA_CHAT_*` or `NOVA_EMBED_*` variables is set, Nova
    uses option B, and all six are required.
 2. Otherwise, if `GEMINI_API_KEY` is set, Nova uses option A.
-3. Otherwise, nothing is configured. The daemon exits at start with a message
+3. Otherwise, if `NOVA_CLOUD_URL`, `NOVA_AUTH_URL` and `NOVA_AUTH_KEY` are
+   set, Nova uses Nova Cloud: signed-in users need no key of their own. Signed
+   out, the daemon keeps running and captures wait for sign-in. A partial set
+   is named, like option B.
+4. Otherwise, nothing is configured. The daemon exits at start with a message
    that names the variables to set.
 
 A partly filled option B is an error, not a reason to fall back to Gemini. Nova

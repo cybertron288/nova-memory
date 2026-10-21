@@ -216,6 +216,8 @@ Keys in use:
 | `retention_memory_days` | `setRetention` (`forget.ts`) | A number of days, or `"forever"`. Absent means forever. |
 | `retention_last_sweep` | `sweepRetention` (`forget.ts`) | JSON: `{ at, rawRemoved, deleted: { captures, memories, loops } }`. |
 | `capture_paused` | `pause` / `resume` ops (`control.ts`) | `"1"` or `"0"`. Read at daemon start, so a pause survives a restart. |
+| `account` | `set_session` op (`account.ts`) | `lookupDigest` of the Nova Cloud user id. Which account the store belongs to; never the id in the clear. |
+| `account_email` | `set_session` op (`account.ts`) | `encryptField` of that account's email, so the account-switch warning can name it. |
 | `user_identity` | `set_profile` op (`identity.ts`) | `encryptField` of JSON `{ name, aliases }`. Field-encrypted: a name and emails are personal data. Absent means fall back to `NOVA_USER_NAME` / `NOVA_USER_ALIASES`. Not capture-derived, so a delete leaves it. |
 
 ### 2.11 `provider_calls`
@@ -398,6 +400,9 @@ A range needs `from < to`, both non-negative numbers.
 | Op | Parameters | Result |
 |---|---|---|
 | `get_profile` | none | `{ name, aliases, source }`. `name` is `null` when nothing is set. `source` is `app` (stored), `env` (`NOVA_USER_NAME` / `NOVA_USER_ALIASES`) or `none`. |
+| `set_session` | `accessToken`, `refreshToken` (strings), `replaceStore` (optional boolean) | `{ email }`. Refused when Nova Cloud is not in use, a token is malformed or expired, or `replaceStore` is not a boolean. A store bound to another account is refused with `error: "account_mismatch"` and `detail: { previousEmail, memories, loops, since }`; `replaceStore: true` deletes everything first, then binds the new account. |
+| `sign_out` | none | `{}`. Deletes the session; the store stays bound, so the same account signing back in keeps everything. |
+| `account` | none | `{ mode, signedIn, email, refusal }`. `mode` is `env`, `cloud` or `none`; `refusal` is Nova Cloud's last reason for refusing this device, or `null`. |
 | `set_profile` | `name` (string), `aliases` (array of strings) | The same shape as `get_profile`, with the stored values. Name and aliases are trimmed; blank and case-insensitive duplicate aliases are dropped. Refused when the name is empty or over 100 characters, an alias is over 200 characters, or more than 20 aliases remain. |
 
 ## 5. MCP tools

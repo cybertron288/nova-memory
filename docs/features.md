@@ -77,7 +77,7 @@ Milestones (M) are in `roadmap.md`.
 | F6.2 | First-run onboarding: permissions, capture policy, provider setup, MCP connection. | not built |
 | F6.3 | Launch at login, automatic updates, signed and notarized build. | not built — the app is signed for local development only |
 | F6.4 | Accounts and billing. | not planned for the open-source app |
-| F6.5 | Self-hosted server components. | not planned — Nova has no server component (D28) |
+| F6.5 | Nova Cloud: use Nova without your own key. | partial — the proxy (`cloud/`) and the daemon side are built; sign-in in the app is not (`nova-cloud-design.md`) |
 | F6.6 | Open source: public repository, AGPL-3.0, contribution guide. | partial — license and community files are in place; the repository is being prepared for release |
 
 ## F7 — Shared memory between people

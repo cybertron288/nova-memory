@@ -87,6 +87,9 @@ NovaShell (Swift, .accessory)       menu bar, panel, digest card
   A daemon with no capture is the failure being avoided. In reverse, capture
   watches its parent with kqueue and exits immediately — a SIGKILLed daemon never
   gets to kill its child.
+- Exit code 3 means the store cannot be decrypted (`StoreUnreadable`: an
+  edited file or a changed key). Nothing reads it and nothing calls Nova Cloud;
+  restarting cannot help.
 - Exit code 0 means "stopped deliberately" and resets the restart streak;
   `pkill` is the documented restart method, so counting clean stops walked
   backoff to 60 s and gave up after ten.
@@ -220,8 +223,9 @@ since otherwise it describes a tree that did not produce this record.
 ### Config
 
 Provider resolution: **any** of the six `NOVA_CHAT_*`/`NOVA_EMBED_*` vars →
-OpenAI-compatible; else `GEMINI_API_KEY` → Gemini; else a provider that returns
-an actionable error. Triggering on *any* of the six is deliberate — a half-filled
+OpenAI-compatible; else `GEMINI_API_KEY` → Gemini; else, when `NOVA_CLOUD_URL`,
+`NOVA_AUTH_URL` and `NOVA_AUTH_KEY` are set, Nova Cloud (`resolve.ts`,
+`cloud.ts`); else a provider that returns an actionable error. Triggering on *any* of the six is deliberate — a half-filled
 config is a typo, and falling through would surface it as an auth error from an
 unrelated vendor. Chat and embeddings are configured independently.
 
