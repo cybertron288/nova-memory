@@ -32,8 +32,6 @@ memory between people (F7). Neither is scheduled.
 
 ## Next
 
-- **Digest notification.** One macOS notification when the morning digest
-  has loops, none when it has not (F4.3).
 - **Nightly consolidation.** Merge duplicate facts, decay stale ones, and
   write a daily summary. Adds `get_daily_summary` (F2.5, F3.3).
 - **Onboarding.** A first-run window: permissions, capture policy, provider

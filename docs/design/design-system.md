@@ -2100,8 +2100,8 @@ not like an app waiting to be fed.
 4. **The aperture needs to be drawn properly**, once, by someone who can make
    six arcs look machined at 16pt. Every mockup until then uses a placeholder
    ring.
-5. **Notification design (F4.3 digest)** is not in this document — the digest
-   has no shell to live in until the panel ships. It is the next design pass.
+5. **Notification design (F4.3 digest).** Settled: the digest card is the
+   notification. There is no separate macOS notification.
 
 ---
 

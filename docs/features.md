@@ -53,7 +53,7 @@ Milestones (M) are in `roadmap.md`.
 |---|---|---|
 | F4.1 | Find open loops: commitments made, commitments received, unanswered questions, stalled threads. Each has a description, counterparty, evidence, due signal and state. | built |
 | F4.2 | Close a loop when a later capture shows it was done, quoting the evidence. | built |
-| F4.3 | Morning digest of the top open loops. | partial — the in-app digest card is built; the macOS notification is not |
+| F4.3 | Morning digest of the top open loops. | built — the digest card, shown once a day under the menu bar glyph from 9:00, only when there are loops |
 | F4.4 | Act on a loop: done, snooze, dismiss. | built — panel keys, CLI and control socket |
 | F4.4a | Open the source a loop came from. | deferred (D23) — cannot yet land on the right message in every app |
 | F4.5 | Precision over recall: the user rates loops real or not, and Nova reports the share rated real. | built — `rate_loop` and `nova precision` |
