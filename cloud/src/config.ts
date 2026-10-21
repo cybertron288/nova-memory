@@ -18,6 +18,8 @@ export interface Config {
   maxBodyBytes: number;
   chatMaxTokens: number;
   embedMaxChars: number;
+  ipDailyLimit: number;
+  ipSignupLimit: number;
 }
 
 export class ConfigError extends Error {
@@ -48,6 +50,14 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     return n;
   };
 
+  const optionalCount = (name: string, fallback: number): number => {
+    const value = env[name]?.trim();
+    if (!value) return fallback;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1) problems.push(`${name} must be a whole number of at least 1, got ${JSON.stringify(value)}`);
+    return n;
+  };
+
   const supabaseUrl = url("SUPABASE_URL");
   const config: Config = {
     chat: { baseUrl: url("UPSTREAM_CHAT_BASE_URL"), apiKey: text("UPSTREAM_CHAT_API_KEY"), model: text("UPSTREAM_CHAT_MODEL") },
@@ -64,6 +74,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     maxBodyBytes: 262_144,
     chatMaxTokens: 4096,
     embedMaxChars: 200_000,
+    ipDailyLimit: optionalCount("NOVA_IP_DAILY_LIMIT", 5000),
+    ipSignupLimit: optionalCount("NOVA_IP_SIGNUP_LIMIT", 3),
   };
   if (problems.length > 0) throw new ConfigError(problems);
   return config;
