@@ -38,8 +38,8 @@ design goal, not an afterthought.
 
 - Paid plans, billing, or Stripe.
 - A second Mac, sync, or remote MCP (F3.2).
-- Sign in with Apple. The Apple Developer Program now arrives with this
-  project (DeviceCheck needs it), so it can follow soon after.
+- Anything that needs the paid Apple Developer Program: Sign in with Apple,
+  DeviceCheck, App Attest, and the signed bundled daemon. See Integrity.
 - Email-link sign-in. Supabase's built-in mail reaches only the project's own
   team and a few messages an hour; public email links need a custom SMTP
   service such as Resend. Added later. *(Builder's call.)*
@@ -96,7 +96,6 @@ flowchart LR
 | Database | Supabase Postgres | Same project as sign-in. The data is tiny. |
 | Proxy | Bun + Hono on Vercel | Same runtime and test runner as the daemon. Vercel bills active CPU, not time spent waiting on the model. Nothing to keep running. |
 | Models | Set by the proxy's environment; DeepSeek chat and Gemini embeddings to start | The owner configures the upstream accounts. Loop precision was measured on this pair, so changing it means new paid eval runs. |
-| Device check | Apple DeviceCheck (`DCDevice`) | Proves a request comes from a real Mac running Nova's signed build. Available from macOS 10.15; Nova already requires macOS 14. |
 | Keepalive | GitHub Actions, daily | Supabase pauses a free project after a week with no requests. |
 
 ### Nova Cloud is an OpenAI-compatible proxy
@@ -173,8 +172,8 @@ everything Nova has stored on this Mac first, after a warning.
 - **The first sign-in claims an unbound store** without deleting it, so data
   captured before sign-in, or before this feature existed, is kept.
   *(Builder's call.)*
-- The device key and its DeviceCheck registration are untouched; the daily
-  cap stays per device.
+- The device key is untouched, so the device's daily usage carries over; the
+  new account's own usage starts from zero.
 
 ## Provider resolution
 
@@ -207,9 +206,8 @@ are Vercel environment variables.
 
 The upstream is set entirely by environment, mirroring the daemon's six
 variables: a base URL, key and model each for chat and embeddings. The owner
-sets them up. The Supabase service key, the JWKS URL, the DeviceCheck key and
-key id, the price table and the monthly ceiling are environment variables
-too.
+sets them up. The Supabase service key, the JWKS URL, the price table, the
+monthly ceiling and the IP limits are environment variables too.
 
 ### Endpoints
 
@@ -218,7 +216,6 @@ too.
 | `POST /v1/chat/completions` | OpenAI chat format |
 | `POST /v1/embeddings` | OpenAI embeddings format |
 | `GET /v1/usage` | `{ plan, usedToday, capToday, resetsAt }` for the app |
-| `POST /v1/devices` | Registers a device key with a DeviceCheck token |
 | `GET /health` | Touches Supabase. Used by the keepalive. |
 
 ### What it refuses
@@ -241,8 +238,9 @@ user can still fit those checks; the daily cap is what bounds the cost.
 ### Per request
 
 1. Verify the JWT against Supabase's JWKS. No database call.
-2. Read the remaining allowance for this device and IP. If none is left,
-   return 429 (see Limits). A request with no device key is refused: 400.
+2. Read the remaining allowance for this device, account and IP. If none is
+   left, return 429 (see Limits). A request with no device key is refused:
+   400.
 3. Forward to the upstream.
 4. Read the token counts from the upstream response's `usage` field.
 5. Call `consume_tokens(user, device, in, out, cost)`.
@@ -266,9 +264,9 @@ SQL migrations in `cloud/supabase/migrations/`.
 |---|---|
 | `plans` | `name` PK, `daily_token_cap` |
 | `accounts` | `user_id` PK → `auth.users`, `plan` → `plans` default `new`, `created_at` |
-| `devices` | `device_hash` PK, `registered_at`, `blocked`; and `account_devices` (`user_id`, `device_hash`) |
+| `devices` | `device_hash` PK, `first_seen`, `blocked`; and `account_devices` (`user_id`, `device_hash`, `linked_at`) |
 | `ip_daily` | `ip_hash`, `day`, `signups`, `requests`; PK (`ip_hash`, `day`) |
-| `usage_daily` | `device_hash`, `day`, `tokens_in`, `tokens_out`, `requests`; PK (`device_hash`, `day`). The cap is per device, so a second account on one Mac shares it. |
+| `usage_daily` | `subject`, `day`, `tokens_in`, `tokens_out`, `requests`; PK (`subject`, `day`). `subject` is `d:<device hash>` or `u:<user id>`; each request adds to both rows. |
 | `spend_monthly` | `month` PK, `cost_micros` |
 
 `consume_tokens(user, device, in, out, cost)` adds to `usage_daily` and
@@ -286,8 +284,8 @@ environment, so a price change needs no deploy.
 
 | Limit | Default | When reached |
 |---|---|---|
-| Daily cap, `new` plan (first 7 days) | 100,000 tokens per device *(builder's call)* | Same as below |
-| Daily cap, `free` plan | 1,000,000 tokens per device *(builder's call)* | 429, `Retry-After` until the next 00:00 UTC |
+| Daily cap, `new` plan (first 7 days) | 100,000 tokens per device and per account *(builder's call)* | Same as below |
+| Daily cap, `free` plan | 1,000,000 tokens per device and per account *(builder's call)* | 429, `Retry-After` until the next 00:00 UTC |
 | Monthly ceiling, all users | $20 *(builder's call)* | 429 for everyone, `Retry-After` 3600 |
 | Upstream | Hard limits in the DeepSeek and Gemini dashboards | Backstop if the proxy miscounts |
 
@@ -301,119 +299,81 @@ captures with new text, a few hours of active use. Both numbers live in data
 (`plans`, an environment variable) and should be revised after one week of
 real traffic through the proxy, which records exact counts.
 
-### Integrity: a modified client is rejected
-
-The server must reject any request that does not come from Nova's own,
-unmodified, signed build on a real Mac. Three layers make that checkable.
-
-**1. Nothing runs unsigned.** The daemon moves inside the app bundle as a
-single compiled binary (`bun build --compile`), signed with the Developer ID
-team and the hardened runtime, like `nova-capture` already is. Editing any
-file in the bundle breaks its code signature and macOS refuses to launch it.
-This pulls the bundled-daemon half of D27 forward into this project. A
-daemon run from a source checkout (`bun src/cli.ts start`) can still use BYOK
-and `.env`, never Nova Cloud.
-
-**2. Apple App Attest on every request.** `DCAppAttestService` is available
-from macOS 11.
-
-1. On first sign-in the shell generates an App Attest key in the Secure
-   Enclave and has Apple attest it. The attestation proves the key belongs
-   to Nova's App ID (team and bundle id) running on genuine Apple hardware.
-   `POST /v1/devices` sends it with the DeviceCheck token.
-2. The proxy verifies the attestation against Apple's App Attest root
-   certificate once, and stores the key's public key and a counter.
-3. Every Nova Cloud request carries an **assertion**: a signature by that key
-   over a hash of the exact request body, the path and a timestamp. The
-   daemon asks the shell for it over the control socket. Before signing, the
-   shell checks that the peer process on the socket is the bundle's own
-   signed daemon, by its code signature, not by its path.
-4. The proxy rejects with 401 any request whose assertion is missing, does not
-   verify against the stored key, signs a different body, or does not raise
-   the counter. A replayed or edited request fails.
-
-So the chain is: Apple vouches for the shell, the shell vouches for the
-daemon by code signature, and the proxy checks the signature on every body.
-A modified daemon cannot get an assertion. A modified or re-signed shell has
-a different signing identity and cannot use Nova's App Attest key.
-
-**3. The local store detects tampering.** SQLCipher authenticates every page
-with an HMAC, and every encrypted field is AES-256-GCM, which carries its own
-authentication tag. An edited database file fails to decrypt. The daemon then
-refuses to use the store, reports "Nova's store is damaged" instead of
-reading on, and makes no Nova Cloud call until the user deletes or restores
-it. The server never receives the store, so this check is local by nature:
-what the server checks is the client that would read it.
-
-**What this cannot promise.** A person with full control of their own Mac,
-including disabling System Integrity Protection and reverse-engineering the
-binaries, can in principle defeat any client-side check. These layers make
-that require a real Mac and serious effort, and the per-device caps bound
-what such a person gets. No design that runs on the user's machine can
-honestly claim more.
-
-**To prove before building on it** (a short spike, first in the plan):
-- `isSupported` is true on Apple Silicon and on Intel Macs with a T2 chip, and
-  what happens on older Intel Macs. Those get BYOK only.
-- A Developer ID app outside the Mac App Store can use App Attest. It needs
-  the App Attest entitlement and an embedded provisioning profile.
-- A process can verify its socket peer's code signature from its audit token.
-
 ### Sign-up and abuse
 
-Sign-up is open: anyone with a GitHub or Google account can start. Open
-sign-up means one person can create many accounts, so a free allowance is tied
-to more than the account. Four layers, cheapest first:
+Sign-up is open: anyone with a GitHub or Google account can start. One person
+can create many accounts, so the free allowance is tied to more than the
+account. Four layers, cheapest first:
 
 1. **OAuth only.** No email sign-up, so each account costs a real GitHub or
    Google identity.
 2. **A smaller cap for new accounts.** The `new` plan applies for the first 7
    days, then the account moves to `free`. *(Builder's call: 7 days, and the
    `new` cap at one tenth of `free`.)*
-3. **Per-IP limits.** On account creation and on proxy requests, counted in
-   Postgres per day, plus Vercel's firewall rate limits as a backstop.
-4. **A device key, registered with Apple DeviceCheck.** See below.
+3. **Per-IP limits.** At most 3 new accounts per IP a day, and a request
+   limit per IP a day, counted in Postgres; Vercel's firewall rate limits as a
+   backstop. *(Builder's call: the numbers.)*
+4. **A device key, counted together with the account.** See below.
 
-### Device registration
-
-A random device key alone stops honest account-switching but not a script:
-the client is open source, so a script can mint a key per request, and a user
-can delete the Keychain item. DeviceCheck closes that gap. Apple signs a
-token that only a real Mac running Nova's signed build can produce, and keeps
-two bits per device that the user cannot reach.
+### Device key
 
 1. On first launch the daemon generates a random device key and keeps it in
    the Keychain (`dev.nova.keys`, account `device`).
-2. The shell asks `DCDevice.current.generateToken()` and sends the token with
-   the device key's hash to `POST /v1/devices`. The shell, not the daemon,
-   because only the signed app process can produce the token.
-3. The proxy validates the token with Apple's DeviceCheck API, then reads the
-   device's two bits:
-   - **bit 0 unset:** a new Mac. Set bit 0, store the device hash.
-   - **bit 0 set, last updated in an earlier month:** a reinstall or a wiped
-     Keychain. Allowed; store the new hash.
-   - **bit 0 set, updated this month:** refused. One Mac gets at most one new
-     device key a month. *(Builder's call.)*
-   - **bit 1** marks a device the owner has blocked by hand.
-4. Every proxy request carries the device key. An unregistered key gets 403.
-   Apple is called only at registration, not per request.
+2. Every Nova Cloud request carries it in `X-Nova-Device`. The proxy stores
+   only its sha256 hash, and links it to the account on first use.
+3. **Usage is capped twice: per device and per account.** A request is
+   refused when either is over the plan's daily cap. Two accounts on one Mac
+   share the device's allowance; one account cannot multiply its allowance by
+   inventing device keys, because the account's own total still counts.
+4. An account may link at most 3 device keys in any 30 days. A fourth is
+   refused with 403. *(Builder's call.)*
 
-Daily usage is counted per device, so accounts on one Mac share one
-allowance. The device hash is not linked to any content; `privacy.md` names
-it and the DeviceCheck bits.
+The device hash is not linked to any content; `privacy.md` names it.
 
-**Consequences.**
-- **Nova Cloud needs the Apple Developer Program now.** The DeviceCheck API
-  key (a `.p8` file) comes from it, and only an app signed with that team can
-  produce tokens. The paid program was planned for the signed build (D27); it
-  becomes a prerequisite of this project. Sign in with Apple can then come
-  early too.
-- **A build from source cannot use Nova Cloud.** It has no valid DeviceCheck
-  token. Such users bring their own keys (BYOK), which is the natural path for
-  someone building from source.
-- Apple's bits are reported to persist across reinstalls, but one developer
-  forum report says otherwise in the development environment. Verify in
-  production before relying on the reinstall rule.
+**This is honest-user protection, not proof.** The key is generated by the
+client, and the client is open source, so nothing stops a script from sending
+any key it likes. The per-account cap, the device-link limit, the IP limits
+and the monthly ceiling are what bound a determined abuser.
+
+### Integrity: what holds now, and what waits for Apple
+
+The owner's goal is that a modified client is rejected by the server. **That
+needs Apple attestation, which needs the $99-a-year Apple Developer Program,
+which is not affordable now.** So this project ships without it, and says so.
+
+**What holds now.**
+- **The local store detects tampering.** SQLCipher authenticates every page
+  with an HMAC, and every encrypted field is AES-256-GCM with its own tag. An
+  edited database file fails to decrypt. The daemon refuses to use the store,
+  reports "Nova's store is damaged" instead of reading on, and makes no Nova
+  Cloud call until the user deletes or restores it.
+- **The server checks what it can see.** The session, the request's shape,
+  the device and account caps, and the IP limits. It cannot tell a modified
+  client from Nova's own, and the docs must not claim it can.
+
+**What waits for the Apple Developer Program** (recorded as a deferred task,
+not built):
+1. **The daemon signed inside the bundle**, as one compiled binary
+   (`bun build --compile`) with the hardened runtime, so an edited daemon will
+   not launch (D27's first half).
+2. **Apple DeviceCheck at device registration.** Apple signs a token only a
+   real Mac running Nova's signed build can produce, and keeps two bits per
+   device out of the user's reach: one for "registered this month", one for
+   "blocked by the owner".
+3. **Apple App Attest on every request.** An attested key in the Secure
+   Enclave signs a hash of each request body, path and timestamp. The shell
+   signs only for the bundle's own daemon, checked by code signature. The
+   proxy rejects a missing, invalid, edited or replayed signature.
+4. A spike first, to prove `isSupported` across Macs, App Attest from a
+   Developer ID app, and the socket peer signature check.
+
+The proxy is shaped so these slot in later without changing the daemon's
+wire format beyond two added headers.
+
+**What no design can promise.** A person with full control of their own Mac,
+including disabling System Integrity Protection, can in principle defeat any
+client-side check. The Apple layers raise that to a real Mac and serious
+reverse-engineering; caps bound what it gains.
 
 **The ceiling must sit below Vercel's Hobby limits.** Exceeding a Hobby limit
 can pause the project for up to 30 days. Nova's own 429 must come first.
@@ -432,10 +392,6 @@ runtime unchanged.
 
 **Shell**
 
-- Device registration: the `DCDevice` token and the App Attest attestation to
-  `POST /v1/devices` at first sign-in, and again if the device key changes.
-- Request assertions: an App Attest signature over each Nova Cloud request
-  body, given only to the bundle's own signed daemon.
 - The account-switch warning.
 - An Account pane in Your Space: sign in, sign out, the signed-in email, and
   today's usage from `GET /v1/usage`. Onboarding reuses this flow later.
@@ -443,7 +399,6 @@ runtime unchanged.
 
 **Daemon**
 
-- Built as a signed, compiled binary inside the bundle (see Integrity).
 - Refuses a store that fails to decrypt, and reports it.
 - Control ops `set_session`, `sign_out`, and `account` (signed-in email, mode).
   Each refuses invalid input rather than coercing it (bug class 9).
@@ -458,6 +413,7 @@ runtime unchanged.
 
 - `privacy.md`, README, `providers.md`: the Nova Cloud path.
 - `decisions.md`: D28 superseded.
+- `deferred-tasks.md`: a new D-item for the Apple layers in Integrity.
 - `features.md`: F6.2 and F6.5 progress.
 
 ## Paywall check
