@@ -24,7 +24,9 @@ import { recordCall, type ProviderCall, type CallTotal } from "./calls";
 import { searchMemory } from "./search";
 import { resolveCaptureBin } from "./capture-bin";
 import { serveMcp, formatLoops } from "./mcp";
-import { MissingKeyProvider, UnconfiguredProvider, providerFromEnv } from "./provider";
+import { MissingKeyProvider, NotSignedIn, UnconfiguredProvider } from "./provider";
+import { NovaCloudProvider } from "./cloud";
+import { resolveProvider } from "./resolve";
 import { startControlServer, storedPause, CONTROL_SOCKET_NAME, type DaemonState } from "./control";
 import { controlRequest } from "./control-client";
 import {
@@ -39,6 +41,8 @@ import { mkdirSync } from "node:fs";
 const DIR = join(homedir(), "Library", "Application Support", "Nova");
 mkdirSync(DIR, { recursive: true });
 const DB_PATH = join(DIR, "memory.db");
+/** Serialises Nova Cloud token refreshes across the daemon and `nova mcp`. */
+const SESSION_LOCK = join(DIR, "session.lock");
 
 const cmd = process.argv[2];
 
@@ -78,14 +82,27 @@ if (cmd === "start") {
 
   const { db, key } = await store();
 
-  // providerFromEnv never throws (the MCP server depends on that), so probe
+  // resolveProvider never throws (the MCP server depends on that), so probe
   // the configuration here instead and fail before spawning capture.
   // The sink records what left the machine, for the transparency panel
   // (F5.5). recordCall swallows its own failures, so logging can never turn a
   // successful extraction into a failed one.
-  const provider = providerFromEnv(process.env, (c) => recordCall(db, c));
+  const { provider } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
   if (provider instanceof MissingKeyProvider || provider instanceof UnconfiguredProvider) {
     await provider.extract("").catch((e) => { console.error(`[nova] ${e.message}`); process.exit(1); });
+  }
+  // Nova Cloud's probe never stops the daemon: signed out, offline or over
+  // the cap, captures are kept and wait, which is the point of the queue.
+  if (provider instanceof NovaCloudProvider) {
+    try {
+      const u = await provider.usage();
+      console.error(`[nova] Nova Cloud: ${u.plan} plan, ${u.usedToday} of ${u.capToday} tokens used today`);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(e instanceof NotSignedIn
+        ? "[nova] not signed in to Nova Cloud; captures are kept and wait for sign-in"
+        : `[nova] Nova Cloud is not answering yet (${reason}); captures are kept and wait`);
+    }
   }
 
   // Free any claim a previous run died holding, before the first drain. A
@@ -185,7 +202,8 @@ if (cmd === "start") {
 } else if (cmd === "search") {
   const { db, key } = await store();
   const q = process.argv.slice(3).join(" ");
-  const hits = await searchMemory(db, key, providerFromEnv(process.env, (c) => recordCall(db, c)), q, { limit: 10 });
+  const { provider } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
+  const hits = await searchMemory(db, key, provider, q, { limit: 10 });
   for (const h of hits) {
     console.log(`${h.text}\n  ${new Date(h.at).toISOString().slice(0, 16)} · ${h.app} · ${h.url ?? h.windowTitle}\n`);
   }
@@ -203,7 +221,10 @@ if (cmd === "start") {
   const { db, key } = await store();
   // Logged like the daemon's own calls, so a query an MCP client sent shows in
   // Activity. recordCall swallows a busy store rather than fail the tool.
-  await serveMcp(db, key, providerFromEnv(process.env, (c) => recordCall(db, c)));
+  // The same session store as the daemon, so a refresh here takes the shared
+  // lock and MCP keeps working while the app is closed.
+  const { provider } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
+  await serveMcp(db, key, provider);
 } else if (cmd === "loops" || cmd === "done" || cmd === "snooze" || cmd === "dismiss"
         || cmd === "pause" || cmd === "resume" || cmd === "precision"
         || cmd === "exclude" || cmd === "exclusions" || cmd === "unexclude"

@@ -6,7 +6,7 @@ import {
   addedLines, parkedCaptures, retryParked,
   QuotaGate, Reachability,
 } from "../src/pipeline";
-import { FakeProvider, MalformedResponse, ProviderUnreachable, QuotaExhausted, type CaptureContext, type LoopExtraction, type TrackedLoop } from "../src/provider";
+import { FakeProvider, MalformedResponse, NotSignedIn, ProviderRefused, ProviderUnreachable, QuotaExhausted, type CaptureContext, type LoopExtraction, type TrackedLoop } from "../src/provider";
 import { recordLoops, listOpenLoops } from "../src/loops";
 import { handleLine } from "../src/ingest";
 import { randomBytes } from "node:crypto";
@@ -778,3 +778,20 @@ test("the last failed attempt parks the row instead of deleting it, and retry re
   expect(await drainQueue(db, KEY, new FakeProvider(["Rust enforces ownership rules."]))).toBe(1);
   expect((db.prepare("SELECT COUNT(*) c FROM memory_retry_queue").get() as any).c).toBe(0);
 });
+
+for (const [name, error] of [
+  ["a signed-out drain", () => new NotSignedIn()],
+  ["a refused device", () => new ProviderRefused("this device is blocked")],
+] as const) {
+  test(`${name} spends no attempt and keeps every capture`, async () => {
+    const db = await openDb(":memory:");
+    const tid = resolveThread(db, KEY, rec);
+    enqueueExtraction(db, commitVersion(db, KEY, tid, rec).versionId);
+    const reach = new Reachability();
+    const failing = { extract: async () => { throw error(); }, embed: async () => [] };
+    expect(await drainQueue(db, KEY, failing as any, new QuotaGate(), reach)).toBe(0);
+    const rows = db.prepare("SELECT attempts, parked_at FROM memory_retry_queue").all() as any[];
+    expect(rows).toEqual([{ attempts: 0, parked_at: null }]);
+    expect(reach.since).not.toBeNull();
+  });
+}
