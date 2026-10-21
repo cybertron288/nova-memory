@@ -1,8 +1,10 @@
 import { test, expect } from "bun:test";
-import { openDb, encryptField, decryptField, DIM, assertEmbeddingDim, unitVector } from "../src/db";
+import { openDb, encryptField, decryptField, DIM, assertEmbeddingDim, unitVector, StoreUnreadable } from "../src/db";
+import { deleteKey } from "../src/keychain";
+import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
-import { unlinkSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from "node:fs";
 
 test("field encryption round-trips and does not leak plaintext", () => {
   const key = randomBytes(32);
@@ -142,4 +144,29 @@ test("opening a store rescales stored sidecar vectors to unit length, once", asy
       try { unlinkSync(f); } catch {}
     }
   }
+});
+
+async function storeOnDisk(): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "nova-db-"));
+  const path = join(dir, "memory.db");
+  const db = await openDb(path);
+  db.exec("INSERT INTO store_metadata (key, value) VALUES ('probe', 'x')");
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  db.close();
+  return path;
+}
+
+test("a store whose bytes were edited is StoreUnreadable", async () => {
+  const path = await storeOnDisk();
+  // Past SQLCipher's 16-byte salt, inside page 1's authenticated content.
+  const fd = openSync(path, "r+");
+  writeSync(fd, Buffer.alloc(64), 0, 64, 100);
+  closeSync(fd);
+  await expect(openDb(path)).rejects.toBeInstanceOf(StoreUnreadable);
+});
+
+test("a store opened with a different key is StoreUnreadable", async () => {
+  const path = await storeOnDisk();
+  await deleteKey("db");
+  await expect(openDb(path)).rejects.toBeInstanceOf(StoreUnreadable);
 });

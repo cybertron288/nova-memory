@@ -15,7 +15,7 @@
 // stdout is the wire Claude Desktop reads. All diagnostics below go to
 // stderr (console.error); console.log is used only for `search`/`status`
 // terminal output, which is never reached in the `mcp` branch.
-import { openDb, fieldKey } from "./db";
+import { openDb, fieldKey, StoreUnreadable } from "./db";
 import { ingestStream } from "./ingest";
 import { drainQueue, reachability, releaseStaleClaims } from "./pipeline";
 import { parseScope, sweepDue, sweepRetention, type DeleteScope } from "./forget";
@@ -41,6 +41,8 @@ import { mkdirSync } from "node:fs";
 const DIR = join(homedir(), "Library", "Application Support", "Nova");
 mkdirSync(DIR, { recursive: true });
 const DB_PATH = join(DIR, "memory.db");
+/** The store cannot be decrypted; the supervisor treats this exit as final. */
+const EXIT_STORE_UNREADABLE = 3;
 /** Serialises Nova Cloud token refreshes across the daemon and `nova mcp`. */
 const SESSION_LOCK = join(DIR, "session.lock");
 
@@ -53,7 +55,17 @@ const cmd = process.argv[2];
 // do a write-capable SQLCipher open and ask the keychain for the field key.
 // Memoized so a branch that calls it twice still opens once.
 let opened: Promise<{ db: Awaited<ReturnType<typeof openDb>>; key: Awaited<ReturnType<typeof fieldKey>> }> | undefined;
-const store = () => (opened ??= (async () => ({ db: await openDb(DB_PATH), key: await fieldKey() }))());
+const store = () => (opened ??= (async () => {
+  try {
+    return { db: await openDb(DB_PATH), key: await fieldKey() };
+  } catch (e) {
+    // Its own exit code, so the shell's supervisor stops restarting and shows
+    // why instead of looping on a store that will never open.
+    if (!(e instanceof StoreUnreadable)) throw e;
+    console.error(`[nova] ${e.message}. Nova will not read it or call Nova Cloud. Delete or restore ${DB_PATH}.`);
+    process.exit(EXIT_STORE_UNREADABLE);
+  }
+})());
 
 if (cmd === "start") {
   stampStderr();
