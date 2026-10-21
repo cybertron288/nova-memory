@@ -57,3 +57,17 @@ export function mismatchSummary(db: Database): { memories: number; loops: number
   const since = (db.prepare("SELECT MIN(committed_at) t FROM memory_versions").get() as { t: number | null }).t;
   return { memories: counts.memories, loops: counts.loops, since };
 }
+
+/**
+ * What the previous person set, beyond their captures: their name and handles
+ * (a wrong identity inverts every loop), their blocked apps and sites, and
+ * their retention choices. Run with the capture delete when another account
+ * takes the store over.
+ */
+export function forgetPerson(db: Database): void {
+  db.transaction(() => db.exec(`
+    DELETE FROM store_metadata WHERE key IN
+      ('user_identity', 'retention_raw_days', 'retention_memory_days', 'retention_last_sweep');
+    DELETE FROM user_exclusions;
+    DELETE FROM skip_counts;`))();
+}

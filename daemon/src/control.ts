@@ -40,7 +40,7 @@ import {
 import { listCalls, callTotals } from "./calls";
 import { countCapturesSince, listRecentCaptures } from "./captures";
 import { parseIdentity, storeIdentity, userIdentity } from "./identity";
-import { bindAccount, checkBinding, mismatchSummary } from "./account";
+import { bindAccount, checkBinding, forgetPerson, mismatchSummary } from "./account";
 import { parseSession, type SessionStore } from "./session";
 import type { ProviderMode } from "./resolve";
 
@@ -95,7 +95,14 @@ async function setSession(
       if (msg.replaceStore !== true) {
         return reply(id, { ok: false, error: "account_mismatch", detail: { previousEmail: binding.previousEmail, ...mismatchSummary(db) } });
       }
+      // Two steps, because a full delete ends in VACUUM, which cannot run in a
+      // transaction. Either failing leaves the old binding, so a retry repeats
+      // both and no one is bound over leftovers.
       const deleted = deleteScope(db, { kind: "all" }, { clearCallLog: true });
+      forgetPerson(db);
+      // The previous account's session goes with its memory: if storing the new
+      // one fails below, nothing is left signed in as someone else.
+      await state.session.clear();
       if (state.logFile) clearLogs(state.logFile);
       console.error(`[account] a different account signed in: deleted captures=${deleted.captures} `
         + `memories=${deleted.memories} loops=${deleted.loops}`);

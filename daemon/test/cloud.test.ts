@@ -62,11 +62,13 @@ test("a 401 refreshes once and retries", async () => {
   expect(calls[1]!.headers.get("authorization")).toBe(`Bearer ${SECOND}`);
 });
 
-test("a second 401 is NotSignedIn, not a loop", async () => {
+test("a second 401 is NotSignedIn, not a loop, and ends the session", async () => {
+  const session = sessionStore();
   const { impl, calls } = replies(() => new Response("{}", { status: 401 }), () => new Response("{}", { status: 401 }));
-  await expect(new NovaCloudProvider(CFG, sessionStore(), DEVICE, undefined, impl).extract("hello"))
+  await expect(new NovaCloudProvider(CFG, session, DEVICE, undefined, impl).extract("hello"))
     .rejects.toBeInstanceOf(NotSignedIn);
   expect(calls).toHaveLength(2);
+  expect(await session.get()).toBeNull();
 });
 
 test("a 403 is ProviderRefused with the proxy's reason", async () => {
@@ -81,7 +83,7 @@ test("a 403 is ProviderRefused with the proxy's reason", async () => {
   expect(session.lastRefusal).toBeNull();
 });
 
-for (const status of [502, 503]) {
+for (const status of [500, 502, 503, 504]) {
   test(`a ${status} is unreachable`, async () => {
     const { impl } = replies(() => new Response("{}", { status }));
     const err = await new NovaCloudProvider(CFG, sessionStore(), DEVICE, undefined, impl).extract("hello").catch((e) => e);
@@ -116,4 +118,18 @@ test("cloudFetch leaves a successful reply untouched", async () => {
   const { impl } = replies(() => new Response("ok", { status: 200 }));
   const res = await cloudFetch(sessionStore(), DEVICE, impl)("https://cloud.example/v1/usage", { method: "GET" });
   expect(await res.text()).toBe("ok");
+});
+
+test("loop extraction keeps the end of a long thread and the new lines, within the proxy's limit", async () => {
+  const loopsOk = () => Response.json({ choices: [{ message: { content: '{"loops":[],"closed":[]}' } }] });
+  const { impl, calls } = replies(loopsOk);
+  const newest = "Sam: I'll send the Q3 deck by Friday";
+  const thread = `${"old message\n".repeat(6_000)}${newest}`;
+  const added = `${"x".repeat(40_000)}\n${newest}`;
+  await new NovaCloudProvider(CFG, sessionStore(), DEVICE, undefined, impl)
+    .extractLoops(thread, { app: "Slack", title: "DM", url: null, capturedAt: NOW, added }, []);
+  const body = calls[0]!.body;
+  expect(new TextEncoder().encode(body).byteLength).toBeLessThan(262_144);
+  const content = JSON.parse(body).messages[0].content as string;
+  expect(content.split(newest).length - 1).toBe(2);   // once in CONTENT, once in NEW
 });

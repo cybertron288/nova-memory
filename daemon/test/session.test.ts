@@ -126,3 +126,26 @@ test("an unreachable auth server keeps the session", async () => {
 test("no session is NotSignedIn", async () => {
   await expect(store(memorySecrets(), rotating()).accessToken()).rejects.toBeInstanceOf(NotSignedIn);
 });
+
+test("a refresh refused for another reason (a wrong API key) keeps the session", async () => {
+  const before = JSON.stringify(session(NOW + 30_000));
+  const secrets = memorySecrets(before);
+  const wrongKey: RefreshFn = async () => ({ status: 401, body: { message: "Invalid API key" } });
+  const err = await store(secrets, wrongKey).accessToken().catch((e) => e);
+  expect(err).toBeInstanceOf(ProviderUnreachable);
+  expect(err).not.toBeInstanceOf(NotSignedIn);
+  expect(secrets.value).toBe(before);
+});
+
+test("a reused refresh token signs out", async () => {
+  const secrets = memorySecrets(JSON.stringify(session(NOW + 30_000)));
+  const reused: RefreshFn = async () => ({ status: 400, body: { error_code: "refresh_token_already_used" } });
+  await expect(store(secrets, reused).accessToken()).rejects.toBeInstanceOf(NotSignedIn);
+  expect(secrets.value).toBeNull();
+});
+
+test("an expiry too large to be a time is refused", () => {
+  const b64 = (t: string) => Buffer.from(t).toString("base64url");
+  const huge = `${b64('{"alg":"ES256"}')}.${b64('{"sub":"u1","exp":1e400}')}.sig`;
+  expect(parseSession({ accessToken: huge, refreshToken: "r" }, NOW)).toBe("accessToken has no expiry");
+});

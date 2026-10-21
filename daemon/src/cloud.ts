@@ -64,14 +64,21 @@ export function cloudFetch(session: SessionStore, deviceKey: string, inner: Fetc
     // problem, and looping would hammer both the proxy and Supabase.
     if (res.status === 401) {
       res = await send(await session.forceRefresh(token));
-      if (res.status === 401) throw new NotSignedIn("Nova Cloud rejected the session; sign in again");
+      if (res.status === 401) {
+        // Signed out for real (the account was deleted, say): without this the
+        // app would show "signed in" while every drain refreshed and failed.
+        await session.clear();
+        throw new NotSignedIn("Nova Cloud rejected the session; sign in again");
+      }
     }
     if (res.status === 403) {
       const reason = await errorText(res);
       session.lastRefusal = reason;
       throw new ProviderRefused(reason);
     }
-    if (res.status === 502 || res.status === 503) {
+    // Any 5xx: the proxy or its upstream failed, not this capture. Vercel
+    // answers 504 on a function timeout and 500 when an invocation dies.
+    if (res.status >= 500) {
       throw new ProviderUnreachable(kind, `Nova Cloud is unavailable (${res.status}): ${await errorText(res)}`);
     }
     if (res.ok) session.lastRefusal = null;
@@ -79,10 +86,10 @@ export function cloudFetch(session: SessionStore, deviceKey: string, inner: Fetc
   };
 }
 
-function capped(text: string): string {
-  if (text.length <= MAX_CLOUD_TEXT) return text;
-  console.error(`[cloud] capture text capped at ${MAX_CLOUD_TEXT} of ${text.length} characters`);
-  return text.slice(0, MAX_CLOUD_TEXT);
+function capped(text: string, limit: number, keep: "start" | "end"): string {
+  if (text.length <= limit) return text;
+  console.error(`[cloud] capture text capped at ${limit} of ${text.length} characters, keeping the ${keep}`);
+  return keep === "start" ? text.slice(0, limit) : text.slice(text.length - limit);
 }
 
 /** The proxy chooses the model and holds the provider key; these fill the shape. */
@@ -105,11 +112,19 @@ export class NovaCloudProvider implements InferenceProvider {
   }
 
   extract(versionText: string, ctx?: CaptureContext): Promise<string[]> {
-    return this.inner.extract(capped(versionText), ctx);
+    return this.inner.extract(capped(versionText, MAX_CLOUD_TEXT, "start"), ctx);
   }
 
+  /**
+   * The loop prompt carries the capture and its new lines, and parseLoops
+   * checks evidence against the same two texts it was given. New messages sit
+   * at the end of a thread, so the end is what is kept: the new lines get up
+   * to half the budget and the capture the rest.
+   */
   extractLoops(versionText: string, ctx?: CaptureContext, tracked?: TrackedLoop[]): Promise<LoopExtraction> {
-    return this.inner.extractLoops(capped(versionText), ctx, tracked);
+    const added = ctx?.added === undefined ? undefined : capped(ctx.added, MAX_CLOUD_TEXT / 2, "end");
+    const text = capped(versionText, MAX_CLOUD_TEXT - (added?.length ?? 0), "end");
+    return this.inner.extractLoops(text, added === undefined ? ctx : { ...ctx!, added }, tracked);
   }
 
   summarizeDigest(input: DigestSummaryInput): Promise<DigestSummary> {

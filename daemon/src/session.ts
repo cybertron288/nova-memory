@@ -31,7 +31,9 @@ export type RefreshFn = (refreshToken: string) => Promise<{ status: number; body
 /** Refresh this long before expiry, so a token never expires in flight. */
 const EARLY_MS = 60_000;
 const LOCK_STALE_MS = 30_000;
-const LOCK_WAIT_MS = 10_000;
+/** Longer than a refresh can take (REFRESH_TIMEOUT_MS), so a waiter never refreshes unlocked over a slow one. */
+const LOCK_WAIT_MS = 20_000;
+const REFRESH_TIMEOUT_MS = 15_000;
 const LOCK_POLL_MS = 50;
 
 function jwtPayload(token: string): Record<string, unknown> | null {
@@ -56,13 +58,29 @@ export function parseSession(raw: { accessToken: unknown; refreshToken: unknown 
   const payload = jwtPayload(raw.accessToken);
   if (!payload) return "accessToken is not a JWT";
   if (typeof payload.sub !== "string" || payload.sub === "") return "accessToken has no subject";
-  if (typeof payload.exp !== "number") return "accessToken has no expiry";
+  if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return "accessToken has no expiry";
   const expiresAt = payload.exp * 1000;
   if (expiresAt <= now) return "accessToken has expired";
   return {
     accessToken: raw.accessToken, refreshToken: raw.refreshToken, expiresAt,
     userId: payload.sub, email: typeof payload.email === "string" ? payload.email : null,
   };
+}
+
+/**
+ * Only an answer about the refresh token itself signs the user out. Supabase
+ * also answers 400/401 for a wrong API key or a malformed request, and
+ * signing everyone out over Nova's own misconfiguration would be the wrong
+ * failure.
+ */
+const REVOKED_CODES = new Set([
+  "refresh_token_not_found", "refresh_token_already_used", "session_not_found", "session_expired",
+]);
+function revoked(reply: { status: number; body: unknown }): boolean {
+  if (reply.status !== 400 && reply.status !== 401) return false;
+  const body = reply.body as { error_code?: unknown; error?: unknown } | null;
+  return (typeof body?.error_code === "string" && REVOKED_CODES.has(body.error_code))
+    || body?.error === "invalid_grant";
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -149,7 +167,7 @@ export class SessionStore {
       } catch (e) {
         throw new ProviderUnreachable("chat", `Nova Cloud sign-in could not be renewed: ${e instanceof Error ? e.message : String(e)}`);
       }
-      if (reply.status === 400 || reply.status === 401) {
+      if (revoked(reply)) {
         await this.clear();
         throw new NotSignedIn("the Nova Cloud session was revoked; sign in again");
       }
@@ -182,7 +200,7 @@ export function supabaseRefresh(authUrl: string, authKey: string): RefreshFn {
       method: "POST",
       headers: { "content-type": "application/json", apikey: authKey },
       body: JSON.stringify({ refresh_token: refreshToken }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     });
     let body: unknown = null;
     try { body = await res.json(); } catch { /* status alone decides */ }

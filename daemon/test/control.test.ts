@@ -4,6 +4,8 @@ import { recordLoops, listOpenLoops } from "../src/loops";
 import { handleControlLine, startControlServer, storedPause, type DaemonState } from "../src/control";
 import { FakeProvider, type LoopCandidate } from "../src/provider";
 import { checkBinding } from "../src/account";
+import { storeIdentity, storedIdentity } from "../src/identity";
+import { addExclusion } from "../src/exclusions";
 import { drainQueue, enqueueExtraction } from "../src/pipeline";
 import { SessionStore } from "../src/session";
 import { resolveThread, commitVersion } from "../src/threads";
@@ -778,4 +780,29 @@ test("set_session in env mode is refused", async () => {
   const r = await ask(signIn("u1", "a@example.com"), db, freshState(db));
   expect(r.ok).toBe(false);
   expect(r.error).toContain("not in use");
+});
+
+test("replaceStore also forgets the previous person's profile and preferences", async () => {
+  const db = await openDb(":memory:");
+  const { state } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  storeIdentity(db, KEY, { name: "Alex", aliases: ["alex@example.com"] });
+  addExclusion(db, KEY, { kind: "domain", value: "alex-bank.example" });
+  db.prepare("INSERT INTO skip_counts (rule_id, skipped, last_at) VALUES ('r', 3, 1)").run();
+  db.prepare("INSERT INTO store_metadata (key, value) VALUES ('retention_raw_days', '7')").run();
+  expect((await ask(signIn("u2", "b@example.com", { replaceStore: true }), db, state)).ok).toBe(true);
+  expect(storedIdentity(db, KEY)).toBeUndefined();
+  expect((db.prepare("SELECT COUNT(*) c FROM user_exclusions").get() as any).c).toBe(0);
+  expect((db.prepare("SELECT COUNT(*) c FROM skip_counts").get() as any).c).toBe(0);
+  expect(db.prepare("SELECT 1 FROM store_metadata WHERE key='retention_raw_days'").get()).toBeNull();
+});
+
+test("if the new session cannot be stored after a switch, the old one is gone too", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  session.set = async () => { throw new Error("keychain: could not store session"); };
+  const r = await ask(signIn("u2", "b@example.com", { replaceStore: true }), db, state);
+  expect(r.ok).toBe(false);
+  expect(await session.get()).toBeNull();
 });
