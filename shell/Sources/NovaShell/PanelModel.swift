@@ -117,6 +117,14 @@ final class PanelModel: ObservableObject {
     @Published private(set) var failure: String?
     @Published private(set) var loaded = false
     @Published var focusIndex = 0
+    /// Bumped when focus moves by keyboard or on open, the only moves the list
+    /// scrolls for. Hover also moves focus, and scrolling to it dragged the
+    /// list along under the pointer.
+    @Published private(set) var scrollRequest = 0
+    /// Whether the pointer or the keyboard drives focus. ↑/↓ hands focus to the
+    /// keyboard until the mouse really moves: a keyboard scroll slides rows
+    /// under a still pointer, and hover would pull focus back to that row.
+    private var pointerDriven = true
 
     /// Set when the panel should close itself — after the last loop is cleared.
     var onRequestClose: (() -> Void)?
@@ -150,7 +158,6 @@ final class PanelModel: ObservableObject {
     var showSkeleton: Bool { !loaded && failure == nil }
     var showCount: Bool { !daemonDown && !accessibilityDenied && loaded }
     var showFooter: Bool { !rows.isEmpty }
-    var overflowing: Bool { rows.count > 6 }
 
     var apertureState: ApertureState {
         if needsAttention { return .attention }
@@ -182,6 +189,7 @@ final class PanelModel: ObservableObject {
     func panelDidOpen() {
         isOpen = true
         focusIndex = 0
+        scrollRequest += 1
         refresh()
         poll?.invalidate()
         // 5s while visible. Loops change on a 15s extraction tick, so polling a
@@ -229,7 +237,7 @@ final class PanelModel: ObservableObject {
                 }
             }()
             await MainActor.run {
-                self.accessibilityDenied = !AccessibilityPermission.granted
+                self.accessibilityDenied = !NovaPermission.accessibility.granted
                 self.apply(outcome)
                 if let fetched {
                     // Animated, so the skeleton-to-list swap grows the panel
@@ -310,6 +318,7 @@ final class PanelModel: ObservableObject {
         }
         // Wrapping otherwise — a list this short has no edges worth enforcing.
         focusIndex = (focusIndex + delta + rows.count) % rows.count
+        scrollRequest += 1
         syncFocus()
     }
 
@@ -363,9 +372,13 @@ final class PanelModel: ObservableObject {
     func hover(_ row: Row) {
         // Hover moves focus only in plain mode: stealing it mid-confirm would
         // let a stray mouse move dismiss the wrong loop.
-        guard currentMode == .plain, let index = rows.firstIndex(where: { $0.id == row.id }) else { return }
+        guard pointerDriven, currentMode == .plain,
+              let index = rows.firstIndex(where: { $0.id == row.id }), index != focusIndex else { return }
         focus(index)
     }
+
+    /// The mouse moved or scrolled: hover drives focus again.
+    func pointerMoved() { pointerDriven = true }
 
     /// A click focuses a row and toggles its detail. It does not resolve it.
     ///
@@ -423,7 +436,7 @@ final class PanelModel: ObservableObject {
         // swallowed rather than acting on a list that is not on screen.
         if blockedOnPermission {
             switch key {
-            case .enter: AccessibilityPermission.openSettings()
+            case .enter: NovaPermission.accessibility.openSettings()
             case .escape: onRequestClose?()
             default: break
             }
@@ -454,8 +467,8 @@ final class PanelModel: ObservableObject {
             }
             return true
 
-        case .down: moveFocus(by: 1); return true
-        case .up: moveFocus(by: -1); return true
+        case .down: pointerDriven = false; moveFocus(by: 1); return true
+        case .up: pointerDriven = false; moveFocus(by: -1); return true
 
         case .enter:
             switch currentMode {

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { formatHits, formatLoops, handleSearchCall } from "../src/mcp";
+import { formatHits, formatLoops, formatTimeline, handleSearchCall, handleToolCall, parseInstant } from "../src/mcp";
 import { openDb } from "../src/db";
 import { resolveThread, commitVersion } from "../src/threads";
 import { enqueueExtraction, drainQueue } from "../src/pipeline";
@@ -126,4 +126,56 @@ test("loops render with their source app and the id nova done takes", () => {
     + '  (noticed today in Slack · with Lee · said "by Friday" · id 019a-1)\n'
     + "- [Stalled] book the venue\n"
     + "  (noticed 3d ago · id 019a-2)");
+});
+
+const localDay = (t: number) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+test("get_timeline: a period covering the capture returns its memory with provenance", async () => {
+  const db = await seededDb();
+  const today = localDay(Date.now());
+  const result = await handleToolCall(db, KEY, new FakeProvider(), {
+    name: "get_timeline", arguments: { from: today, to: today },
+  });
+  const text = result.content[0]!.text;
+  expect(text).toContain("- Rust enforces ownership rules at compile time.");
+  expect(text).toContain("Google Chrome — https://doc.rust-lang.org/book/ch04.html");
+});
+
+test("get_timeline: a period before any capture says it is empty", async () => {
+  const db = await seededDb();
+  const result = await handleToolCall(db, KEY, new MissingKeyProvider(), {
+    name: "get_timeline", arguments: { from: "2020-01-01", to: "2020-01-02" },
+  });
+  expect(result.content[0]!.text).toBe(
+    "No memories in this period. Either nothing was captured, or capture was not running at the time.");
+});
+
+test("get_timeline: bad periods and limits are refused, not read as defaults", async () => {
+  const db = await seededDb();
+  const call = (args: Record<string, unknown>) =>
+    handleToolCall(db, KEY, new FakeProvider(), { name: "get_timeline", arguments: args });
+  await expect(call({})).rejects.toThrow("get_timeline: from must be an ISO 8601 date or date-time");
+  await expect(call({ from: "yesterday" })).rejects.toThrow("get_timeline: from must be an ISO 8601 date or date-time");
+  await expect(call({ from: "2026-02-30" })).rejects.toThrow("get_timeline: from must be an ISO 8601 date or date-time");
+  await expect(call({ from: "2026-10-14", to: 5 })).rejects.toThrow("get_timeline: to must be an ISO 8601 date or date-time");
+  await expect(call({ from: "2026-10-14T10:00", to: "2026-10-14T09:00" })).rejects.toThrow("get_timeline: from must be before to");
+  await expect(call({ from: "2026-10-14", limit: 0 })).rejects.toThrow("get_timeline: limit must be a positive integer");
+});
+
+test("parseInstant: a bare date is a local day, and its end is the next local midnight", () => {
+  expect(parseInstant("2026-10-14", false)).toBe(new Date(2026, 9, 14).getTime());
+  expect(parseInstant("2026-10-14", true)).toBe(new Date(2026, 9, 15).getTime());
+  expect(parseInstant("2026-10-14T09:30:00Z", false)).toBe(Date.UTC(2026, 9, 14, 9, 30));
+});
+
+test("formatTimeline: a capped answer says how many it left out", () => {
+  const out = formatTimeline([{
+    id: "a", text: "Read about ownership.", sourceApp: "Google Chrome",
+    capturedAt: Date.UTC(2026, 9, 14, 9, 30), windowTitle: "Rust ownership", url: null,
+  }], 3);
+  expect(out).toBe("The first 1 of 3 memories in this period, oldest first. Ask for a shorter period to see the rest.\n"
+    + "- Read about ownership.\n  (2026-10-14 09:30 · Google Chrome — Rust ownership)");
 });

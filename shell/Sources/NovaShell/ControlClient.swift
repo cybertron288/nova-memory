@@ -266,6 +266,15 @@ struct Retention: Decodable, Equatable {
     static let memoryChoices: [Int?] = [nil, 365]
 }
 
+/// The user's name and handles, which decide loop direction (D24).
+struct Profile: Decodable, Equatable {
+    /// Where the values came from. `env` is `.env`; `none` means no name is set.
+    enum Source: String, Decodable { case app, env, none }
+    let name: String?
+    let aliases: [String]
+    let source: Source
+}
+
 /// The Your data pane in one reply.
 struct DataSummary: Decodable, Equatable {
     struct App: Decodable, Equatable, Identifiable {
@@ -502,6 +511,17 @@ final class ControlClient {
         let value: [String: Any] = ["rawDays": r.rawDays.map { $0 as Any } ?? NSNull(),
                                     "memoryDays": r.memoryDays.map { $0 as Any } ?? NSNull()]
         return try call(op: "set_retention", args: ["retention": value], as: Retention.self)
+    }
+
+    func getProfile() throws -> Profile {
+        try call(op: "get_profile", args: [:], as: Profile.self)
+    }
+
+    /// Returns the values as Nova stored them: trimmed, empties and
+    /// duplicates dropped. Invalid input comes back as `.refused` with the reason.
+    @discardableResult
+    func setProfile(name: String, aliases: [String]) throws -> Profile {
+        try call(op: "set_profile", args: ["name": name, "aliases": aliases], as: Profile.self)
     }
 
     /// What an add did, so the row can report the deletion as done rather

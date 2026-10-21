@@ -11,10 +11,8 @@ import type { Database } from "bun:sqlite";
 import { attributed } from "./calls";
 import { decryptField } from "./db";
 import { countOpenLoops, listOpenLoops, type OpenLoop } from "./loops";
-import {
-  userIdentityFromEnv,
-  type DigestGroup, type DigestSummary, type InferenceProvider,
-} from "./provider";
+import { userIdentity } from "./identity";
+import type { DigestGroup, DigestSummary, InferenceProvider } from "./provider";
 
 export interface DigestBlock {
   person: string | null;
@@ -91,7 +89,7 @@ export async function buildMorningDigest(
   now: Date = new Date(), timeoutMs: number = DIGEST_TIMEOUT_MS,
 ): Promise<MorningDigest> {
   const loops = listOpenLoops(db, key, { direction: "any", limit: 50 });
-  const identity = userIdentityFromEnv();
+  const identity = userIdentity(db, key).identity;
   const user = identity?.name.trim().split(/\s+/)[0] || null;
   if (loops.length === 0) return { count: 0, owe: [], waitingOn: [], yesterday: null, summarized: false, user };
 

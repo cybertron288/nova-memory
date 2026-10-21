@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let status = try? client.status()
             await MainActor.run {
                 self.statusItem.update(status: status, reachable: status != nil,
-                                       accessibilityDenied: !AccessibilityPermission.granted)
+                                       accessibilityDenied: !NovaPermission.accessibility.granted)
             }
         }
     }

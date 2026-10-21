@@ -4,7 +4,8 @@ import type { Database } from "bun:sqlite";
 import { closeLoops, recordLoops, trackedLoops, watchesForLoops } from "./loops";
 import { attributed } from "./calls";
 import { encryptField, decryptField, DIM, unitVector } from "./db";
-import { ProviderUnreachable, QuotaExhausted, userIdentityFromEnv, type InferenceProvider } from "./provider";
+import { ProviderUnreachable, QuotaExhausted, type InferenceProvider } from "./provider";
+import { userIdentity } from "./identity";
 import { createHash, randomUUID } from "node:crypto";
 
 const MAX_ATTEMPTS = 8;
@@ -239,7 +240,7 @@ export async function drainQueue(
         title: version.source_title ? decryptField(version.source_title, key) : "",
         url: version.source_url ? decryptField(version.source_url, key) : null,
         capturedAt: version.committed_at,
-        user: userIdentityFromEnv(),
+        user: userIdentity(db, key).identity,
       };
       // Diff against the previous version only when its memories exist: text
       // from a version that failed extraction was never recorded, so it is

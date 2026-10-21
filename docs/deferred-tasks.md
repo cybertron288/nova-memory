@@ -32,7 +32,7 @@ Ordered by severity, not by when to do them.
 | D21 | Personal data and the unbuilt hard exclusions | closed 2026-10-06 — exclusions, redaction and the user deny-list all built |
 | D22 | The transparency panel does not belong in the loop panel | closed 2026-10-06 — Your Space → Activity |
 | D23 | F4.4's "open source context" cannot work for every app | decided 2026-10-07 — out of P0, deferred until it does |
-| D24 | Profile shows facts Nova formed, which are unbuilt | decided 2026-10-07 — name and handles in M2, facts to M3 |
+| D24 | Profile shows facts Nova formed, which are unbuilt | built 2026-10-13 — name and handles in Your Space; facts to M3 |
 | D25 | Delete and retention have no home in Your Space | decided 2026-10-07 — a fifth pane, "Your data" |
 | D26 | The beta gates need data no backend can receive | decided 2026-10-07 — local counters plus Export diagnostics |
 | D27 | Another Mac cannot run Nova | decided 2026-10-07 — Apple Developer ID, signed and notarized |
@@ -449,9 +449,9 @@ something already done, which the prompt's own "already visibly done" exclusion
 should have caught. Left at 88% rather than tuned further: the next change
 should be measured against a larger sample than six captures.
 
-**Identity is configured, not derived.** `NOVA_USER_NAME` and
-`NOVA_USER_ALIASES` today; when the app ships a login (F6.2) it comes from the
-signed-in profile and the env vars become the self-host escape hatch. Unset
+**Identity is configured, not derived.** Set in Your Space → Profile (D24),
+with `NOVA_USER_NAME` and `NOVA_USER_ALIASES` as the fallback when the app has
+stored nothing. Unset
 identity is supported and degrades to refusing a direction rather than guessing
 one.
 
@@ -941,7 +941,7 @@ every row it appears on.
 
 ## D24 — Profile shows facts Nova formed, which are unbuilt
 
-**Recorded:** 2026-10-07 · **Status:** decided — name and handles in M2
+**Recorded:** 2026-10-07 · **Status:** built 2026-10-13 — Your Space → Profile edits name and handles; facts wait for D11
 **Source:** M2 plan §2.2, 2026-10-07
 
 The Your Space design promises a Profile pane holding "the facts Nova has

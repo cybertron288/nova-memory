@@ -120,9 +120,9 @@ and phone numbers with `[phone]` in the capture text, title, URL and embedding
 input. These stay in your local store, so a memory still names the person. The
 provider does not see the address.
 
-One exception to know about: `NOVA_USER_NAME` and `NOVA_USER_ALIASES` go into
-the loop prompt as written. If an alias is an email address, the provider sees
-it.
+One exception to know about: your name and handles, from Your Space → Profile
+or `NOVA_USER_NAME` and `NOVA_USER_ALIASES`, go into the loop prompt as
+written. If a handle is an email address, the provider sees it.
 
 API keys are never written to the store or the log. Nova removes them from
 provider error messages.

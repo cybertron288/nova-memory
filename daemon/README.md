@@ -91,7 +91,8 @@ validated.
 ## Who you are
 
 Open loops need to know which side of a conversation is yours: "I'll send it
-tomorrow" is something you owe only if you wrote it.
+tomorrow" is something you owe only if you wrote it. Set your name and handles
+in the app's Your Space → Profile. Without the app, or as a fallback, use:
 
 ```bash
 export NOVA_USER_NAME="Sam Lee"

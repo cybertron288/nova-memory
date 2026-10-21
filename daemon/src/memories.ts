@@ -94,3 +94,49 @@ export function listMemoriesPage(
   const last = page[page.length - 1];
   return { items, next: more && last ? `${last.committed_at}:${last.id}` : null };
 }
+
+/** A memory with the provenance an MCP answer cites (R9). */
+export interface TimelineEntry extends Memory {
+  windowTitle: string;
+  url: string | null;
+}
+
+/**
+ * Memories captured in [from, to), oldest first, so a period reads in the
+ * order it happened. `total` counts the whole period, so a capped answer can
+ * say how much it left out.
+ */
+export function listMemoriesBetween(
+  db: Database, key: Buffer, from: number, to: number, limit: number,
+): { items: TimelineEntry[]; total: number } {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const { total } = db
+    .prepare("SELECT COUNT(*) AS total FROM memory_derivatives WHERE committed_at >= ? AND committed_at < ?")
+    .get(from, to) as { total: number };
+  const rows = db
+    .prepare(
+      `SELECT d.id, d.content, d.committed_at, t.source_app, t.source_title, t.source_url
+         FROM memory_derivatives d
+         LEFT JOIN memory_threads t ON t.id = d.thread_id
+        WHERE d.committed_at >= ? AND d.committed_at < ?
+        ORDER BY d.committed_at ASC, d.id ASC
+        LIMIT ?`,
+    )
+    .all(from, to, n) as {
+      id: string; content: string; committed_at: number; source_app: string | null;
+      source_title: string | null; source_url: string | null;
+    }[];
+  const items: TimelineEntry[] = [];
+  for (const r of rows) {
+    // One unreadable row must not empty the answer (as listMemories).
+    try {
+      items.push({
+        id: r.id, text: decryptField(r.content, key), sourceApp: r.source_app,
+        capturedAt: r.committed_at,
+        windowTitle: r.source_title ? decryptField(r.source_title, key) : "",
+        url: r.source_url ? decryptField(r.source_url, key) : null,
+      });
+    } catch { continue; }
+  }
+  return { items, total };
+}

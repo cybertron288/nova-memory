@@ -161,10 +161,9 @@ struct PanelView: View {
             }
             .scrollIndicators(.hidden)
             .frame(maxHeight: Nova.listMaxHeight)
-            .mask { if model.overflowing { edgeFadeMask } else { Rectangle() } }
             .overlay(alignment: .top) { Rectangle().fill(Nova.rule).frame(height: 1) }
-            .onChange(of: model.focusIndex) { _, index in
-                guard let id = model.rows[safe: index]?.loop.id else { return }
+            .onChange(of: model.scrollRequest) {
+                guard let id = model.rows[safe: model.focusIndex]?.loop.id else { return }
                 withAnimation(Nova.motionQuick) { proxy.scrollTo(id, anchor: .center) }
             }
         }
@@ -194,19 +193,6 @@ struct PanelView: View {
             .padding(.horizontal, Nova.space6)
             .padding(.top, Nova.space5)
             .padding(.bottom, 2)
-    }
-
-    /// The design masks the list's edges at 24px when it overflows, so rows
-    /// fade out rather than being cut by a hard edge. A mask, not a painted
-    /// gradient: over a translucent ground a painted fade shows as a band.
-    private var edgeFadeMask: some View {
-        VStack(spacing: 0) {
-            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                .frame(height: 24)
-            Rectangle()
-            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 24)
-        }
     }
 
     // MARK: - Memory
@@ -306,7 +292,7 @@ struct PanelView: View {
                     .multilineTextAlignment(.center)
             }
             ChoiceChip(text: "Open Settings", tint: Nova.accent) {
-                AccessibilityPermission.openSettings()
+                NovaPermission.accessibility.openSettings()
             }
             .font(Nova.bodyEmphasis)
         }
@@ -477,7 +463,9 @@ private struct LoopRowView: View {
         .frame(maxHeight: row.collapsed ? 0 : .infinity)
         .clipped()
         .contentShape(Rectangle())
-        .onHover { if $0 { model.hover(row) } }
+        // Continuous, so the first real mouse move after keyboard use takes
+        // the row already under the pointer without leaving it first.
+        .onContinuousHover { if case .active = $0 { model.hover(row) } }
         .onTapGesture { model.click(row) }
         .animation(row.flaring ? Nova.ease(0.12) : Nova.motionBase, value: row.background)
         .animation(Nova.motionBase, value: row.leaving)

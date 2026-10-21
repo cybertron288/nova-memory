@@ -36,10 +36,11 @@ Open `.env` and fill in one provider option:
 - **Option A:** set `GEMINI_API_KEY`.
 - **Option B:** set all six `NOVA_CHAT_*` and `NOVA_EMBED_*` variables.
 
-Also set `NOVA_USER_NAME`, and `NOVA_USER_ALIASES` if people address you by
-other names or handles. Nova uses these to tell what you owe from what others
-owe you. Without them, Nova keeps only the open loops whose direction the text
-makes plain.
+Then set your name, and any other names or handles people use for you, in
+Your Space → Profile once the app is running. Nova uses these to tell what you
+owe from what others owe you. Without them, Nova keeps only the open loops
+whose direction the text makes plain. `NOVA_USER_NAME` and `NOVA_USER_ALIASES`
+in `.env` also work, and the Profile pane overrides them.
 
 `.env` lives at the repository root. `daemon/.env` is a symlink to it, because
 Bun loads `.env` from the directory it runs in. Never commit `.env`.
@@ -134,10 +135,12 @@ If the counts stay at zero, see [troubleshooting.md](troubleshooting.md).
 
 ## 7. Connect an AI app over MCP
 
-Nova serves two tools over MCP: `search_memory` and `get_open_loops`. The MCP
+Nova serves three tools over MCP: `search_memory`, `get_open_loops` and
+`get_timeline`. The MCP
 server is the same CLI, started with `mcp`. It reads the store directly, so it
 works whether or not the menu bar app is running. `search_memory` needs your
-provider, because it embeds the query. `get_open_loops` works offline.
+provider, because it embeds the query. `get_open_loops` and `get_timeline` work
+offline.
 
 Use the absolute path to Bun. Apps opened from the Finder do not see your
 shell's `PATH`. Find it with `which bun`. It is usually
