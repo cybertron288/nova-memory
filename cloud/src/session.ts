@@ -1,5 +1,6 @@
 // Supabase access tokens are JWTs signed with the project's asymmetric key, so
-// they verify against the published JWKS with no database call.
+// they verify against the published JWKS with no database call. A project on
+// the legacy HS256 secret publishes no usable JWKS; cloud/README.md says so.
 import { jwtVerify, type JWTVerifyGetKey } from "jose";
 
 export interface Session { userId: string; email: string | null }

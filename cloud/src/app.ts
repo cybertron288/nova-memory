@@ -18,6 +18,16 @@ export interface Deps {
   log: (line: Record<string, unknown>) => void;
 }
 
+/**
+ * Vercel sets x-real-ip itself. The first x-forwarded-for entry can be
+ * whatever the client sent, which would void the per-IP limits.
+ */
+function clientIp(c: Context): string {
+  return c.req.header("x-real-ip")?.trim()
+    || c.req.header("x-forwarded-for")?.split(",")[0]?.trim()
+    || "unknown";
+}
+
 /** How long the daemon should wait when the ledger cannot be reached. */
 const LEDGER_RETRY_S = "60";
 
@@ -76,7 +86,7 @@ export function createApp(deps: Deps): Hono {
     if (!shaped.ok) return done(c.json({ error: shaped.error }, 400));
 
     const now = deps.now();
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ip = clientIp(c);
     const key: LedgerKey = { userId, deviceHash, ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now) };
 
     // Fail closed: without a ledger nothing is counted, so nothing is forwarded.
@@ -148,7 +158,7 @@ export function createApp(deps: Deps): Hono {
     const device = c.req.header("x-nova-device")?.trim();
     if (!device) return c.json({ error: "x-nova-device is required" }, 400);
     const now = deps.now();
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ip = clientIp(c);
     try {
       const a = await deps.ledger.allowance({
         userId, deviceHash: hashDevice(device), ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now),

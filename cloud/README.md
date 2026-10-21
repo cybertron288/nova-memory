@@ -23,7 +23,11 @@ Both services have free plans that cover Nova Cloud; see the design's
 
 1. Create a project.
 2. Turn on the GitHub and Google providers under Authentication.
-3. Apply the schema:
+3. Under Authentication → JWT signing keys, switch to an asymmetric key
+   (ES256 or RS256). The proxy verifies sessions against the project's
+   published JWKS, and a project still on the legacy shared HS256 secret
+   publishes no usable key, so every sign-in would be refused.
+4. Apply the schema:
 
    ```sh
    cd cloud

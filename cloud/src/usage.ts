@@ -7,8 +7,10 @@ export interface Tokens { in: number; out: number }
 
 const estimate = (chars: number) => Math.ceil(chars / 4);
 
+/** Zero is treated as absent: every accepted request has input, and some
+ *  OpenAI-compatible endpoints report zeros, which would make them free. */
 function count(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
 /**

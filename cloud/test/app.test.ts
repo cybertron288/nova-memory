@@ -202,3 +202,27 @@ test("a relayed upstream error never contains the provider keys", async () => {
   expect(text).not.toContain("chat-key");
   expect(text).not.toContain("embed-key");
 });
+
+test("a usage of zero tokens is counted by estimate, not as free", async () => {
+  const upstream = fakeUpstream(() => Response.json({ data: [{ embedding: [0.1] }], usage: { prompt_tokens: 0, total_tokens: 0 } }));
+  const ledger = new FakeLedger();
+  await post(fakeDeps({ upstream, ledger }), "/v1/embeddings", { input: ["a".repeat(80)] });
+  expect(ledger.used("u:u1", DAY)).toEqual({ in: 20, out: 0, requests: 1 });
+});
+
+test("the client IP is Vercel's x-real-ip, not a client-supplied forwarded-for entry", async () => {
+  const keys: string[] = [];
+  const ledger = new FakeLedger();
+  const allowance = ledger.allowance.bind(ledger);
+  ledger.allowance = async (k) => { keys.push(k.ipHash); return allowance(k); };
+  const app = createApp(fakeDeps({ ledger }));
+  const token = await mintToken({ sub: "u1" });
+  for (const spoofed of ["198.51.100.1", "198.51.100.2"]) {
+    await app.request("/v1/chat/completions", {
+      method: "POST", body: JSON.stringify(chatBody()),
+      headers: { authorization: `Bearer ${token}`, "x-nova-device": DEVICE, "x-real-ip": "203.0.113.7", "x-forwarded-for": `${spoofed}, 203.0.113.7` },
+    });
+  }
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]!);
+});

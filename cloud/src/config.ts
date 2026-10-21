@@ -50,6 +50,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     return n;
   };
 
+  // A zero price would let that kind of call never count toward the ceiling.
+  const price = (name: string): number => {
+    const n = amount(name);
+    if (n === 0 && env[name]?.trim()) problems.push(`${name} must be greater than 0`);
+    return n;
+  };
+
   const optionalCount = (name: string, fallback: number): number => {
     const value = env[name]?.trim();
     if (!value) return fallback;
@@ -67,9 +74,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     jwksUrl: `${supabaseUrl}/auth/v1/.well-known/jwks.json`,
     monthlyCeilingUsd: amount("NOVA_MONTHLY_CEILING_USD"),
     prices: {
-      chatInPerMTok: amount("NOVA_PRICE_CHAT_IN"),
-      chatOutPerMTok: amount("NOVA_PRICE_CHAT_OUT"),
-      embedPerMTok: amount("NOVA_PRICE_EMBED"),
+      chatInPerMTok: price("NOVA_PRICE_CHAT_IN"),
+      chatOutPerMTok: price("NOVA_PRICE_CHAT_OUT"),
+      embedPerMTok: price("NOVA_PRICE_EMBED"),
     },
     maxBodyBytes: 262_144,
     chatMaxTokens: 4096,

@@ -26,3 +26,7 @@ test("loadConfig reads a complete environment", () => {
   expect(config.chat.model).toBe("deepseek-chat");
   expect(config.jwksUrl).toBe("https://project.supabase.co/auth/v1/.well-known/jwks.json");
 });
+
+test("loadConfig refuses a zero price", () => {
+  expect(() => loadConfig({ ...fullEnv, NOVA_PRICE_EMBED: "0" })).toThrow(/NOVA_PRICE_EMBED/);
+});
