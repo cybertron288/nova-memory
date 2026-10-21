@@ -45,7 +45,8 @@ provider's dashboard as a backstop to `NOVA_MONTHLY_CEILING_USD`.
 ### 3. Vercel
 
 Create a project with `cloud/` as its root directory and set these environment
-variables. The proxy refuses to start if a required one is missing or invalid.
+variables. `cloud/.env.example` lists them all with notes; fill in a copy and
+import it in the Vercel dashboard. The proxy refuses to start if a required one is missing or invalid.
 
 | Variable | Required | Meaning |
 |---|---|---|
