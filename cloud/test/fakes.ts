@@ -1,3 +1,4 @@
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import type { Deps } from "../src/app";
 import { loadConfig } from "../src/config";
 import { LedgerUnavailable, type Ledger } from "../src/ledger";
@@ -35,4 +36,23 @@ export function fakeDeps(overrides: Partial<Deps> = {}): Deps {
     log: () => {},
     ...overrides,
   };
+}
+
+export const ISSUER = "https://project.supabase.co/auth/v1";
+
+const signing = await generateKeyPair("ES256");
+const publicJwk = { ...(await exportJWK(signing.publicKey)), kid: "test", alg: "ES256" };
+export const testJwks = createLocalJWKSet({ keys: [publicJwk] });
+
+export async function mintToken(
+  claims: Record<string, unknown>,
+  opts: { key?: CryptoKey; issuer?: string; expiresAt?: number } = {},
+): Promise<string> {
+  return new SignJWT(claims)
+    .setProtectedHeader({ alg: "ES256", kid: "test" })
+    .setIssuer(opts.issuer ?? ISSUER)
+    .setAudience("authenticated")
+    .setIssuedAt()
+    .setExpirationTime(opts.expiresAt ?? "1h")
+    .sign(opts.key ?? signing.privateKey);
 }
