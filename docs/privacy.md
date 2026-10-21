@@ -129,6 +129,24 @@ provider error messages.
 
 Your provider's own terms decide what it does with what it receives. Read them.
 
+## Nova Cloud
+
+With Nova Cloud instead of your own provider, the same text goes to Nova's
+proxy, which forwards it to the model provider Nova configures and keeps no
+request or reply. Nova Cloud also receives:
+
+- Your sign-in token, which says which account is calling.
+- A device key: 32 random bytes made on first use and kept in the Keychain. It
+  says nothing about the Mac. The proxy stores only its hash, to count usage
+  per device.
+- Your IP address, stored only as a keyed hash, to limit sign-ups and requests
+  per network.
+- Token counts per day, per device and per account, to apply the daily cap.
+
+The store on your Mac belongs to one account. Signing in as a different
+account deletes it first, after a warning that names the previous account and
+what would be lost. Signing out keeps it.
+
 ## What never leaves your Mac
 
 - The store itself: raw captures, memories, loops, vectors.

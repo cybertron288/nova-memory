@@ -18,6 +18,8 @@ struct DaemonStatus: Decodable, Equatable {
     let capturing: Bool
     let paused: Bool
     let queued: Int
+    /// When the provider was first found unreachable; nil while it answers.
+    let unreachableSince: Int64?
     let lastCaptureAt: Int64?
     let lastError: String?
     let uptimeMs: Int64
@@ -590,6 +592,12 @@ final class ControlClient {
     func resume() throws -> Bool {
         struct PauseResult: Decodable { let paused: Bool }
         return try call(op: "resume", args: [:], as: PauseResult.self).paused
+    }
+
+    /// The network is back: the daemon drains its queue now.
+    func networkUp() throws {
+        struct Empty: Decodable {}
+        _ = try call(op: "network_up", args: [:], as: Empty.self)
     }
 
     // MARK: Transport

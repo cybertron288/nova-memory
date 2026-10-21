@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { getOrCreateKey, deleteKey, isGenuinelyAbsent } from "../src/keychain";
+import { getOrCreateKey, deleteKey, deviceKey, isGenuinelyAbsent, readSecret, writeSecret } from "../src/keychain";
 
 const ACCOUNT = "nova-test-key-DELETEME";
 
@@ -55,4 +55,37 @@ test("security CLI: item-not-found is exit 44, a usage error is a different code
   const usageErrorCode = await usageError.exited;
   expect(usageErrorCode).not.toBe(44);
   expect(isGenuinelyAbsent(usageErrorCode)).toBe(false);
+});
+
+test("a written secret reads back exactly", async () => {
+  await writeSecret(ACCOUNT + "-secret", '{"a":"b c"}');
+  expect(await readSecret(ACCOUNT + "-secret")).toBe('{"a":"b c"}');
+  await deleteKey(ACCOUNT + "-secret");
+});
+
+test("an absent secret reads as null", async () => {
+  await deleteKey(ACCOUNT + "-missing");
+  expect(await readSecret(ACCOUNT + "-missing")).toBeNull();
+});
+
+test("the device key is stable 64-char hex", async () => {
+  const a = await deviceKey();
+  expect(a).toMatch(/^[0-9a-f]{64}$/);
+  expect(await deviceKey()).toBe(a);
+});
+
+test("a secret is never passed on the security command line", async () => {
+  const value = '{"refreshToken":"rt-SECRET-CANARY","a":"b c"}';
+  const argvs: string[][] = [];
+  const spawn = Bun.spawn;
+  (Bun as any).spawn = (cmd: string[], opts: any) => { argvs.push(cmd); return spawn(cmd, opts); };
+  try {
+    await writeSecret(ACCOUNT + "-argv", value);
+    expect(await readSecret(ACCOUNT + "-argv")).toBe(value);
+  } finally {
+    (Bun as any).spawn = spawn;
+    await deleteKey(ACCOUNT + "-argv");
+  }
+  expect(argvs.length).toBeGreaterThan(0);
+  expect(argvs.some((a) => a.join(" ").includes("SECRET-CANARY"))).toBe(false);
 });

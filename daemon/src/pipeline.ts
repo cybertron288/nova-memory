@@ -152,15 +152,51 @@ export class QuotaGate {
 export const quotaGate = new QuotaGate();
 
 /**
+ * Whether the provider could be reached on the last try (F1.6).
+ *
+ * A pause on the drain rather than a later `next_attempt_at` on each row, so
+ * the network coming back can end it in one step: the shell sees the path
+ * return and sends `network_up`, and the backlog drains then instead of up to
+ * a minute later.
+ */
+export class Reachability {
+  /** When the provider was first found unreachable, or null when it answers. */
+  since: number | null = null;
+  until = 0;
+
+  fail(now: number = Date.now()): void {
+    this.since ??= now;
+    this.until = now + UNREACHABLE_RETRY_MS;
+  }
+
+  ok(): void {
+    if (this.since !== null) {
+      console.error(`[pipeline] provider reachable again after ${Math.round((Date.now() - this.since) / 1000)}s`);
+    }
+    this.since = null;
+    this.until = 0;
+  }
+
+  /** Lets the next drain try now. `since` stays until a call gets through. */
+  retryNow(): void {
+    this.until = 0;
+  }
+}
+
+export const reachability = new Reachability();
+
+/**
  * Process every due job. Returns how many versions were fully processed.
  * A failing job is left queued with its attempt count raised — the network
  * being down must never lose a capture.
  */
 export async function drainQueue(
   db: Database, key: Buffer, provider: InferenceProvider, gate: QuotaGate = quotaGate,
+  reach: Reachability = reachability,
 ): Promise<number> {
   const now = Date.now();
   if (gate.kind && now < gate.until) return 0;
+  if (now < reach.until) return 0;
   // Ask the side that ran out before paying the other. A chat refusal needs no
   // separate probe: extraction is the first call a job makes.
   if (gate.kind === "embed") {
@@ -412,6 +448,7 @@ export async function drainQueue(
       } else if (e instanceof ProviderUnreachable) {
         // Same reasoning as quota: the network is down, the capture is fine.
         // Every remaining job would fail the same way, so stop this drain.
+        release.run(job.id);
         unreachable = e;
       } else {
         const attempts = job.attempts + 1;
@@ -454,16 +491,15 @@ export async function drainQueue(
       break;
     }
     if (unreachable) {
-      const at = Date.now() + UNREACHABLE_RETRY_MS;
+      reach.fail();
       console.error(
-        `[pipeline] provider unreachable, ${jobs.length - index} job(s) wait ${UNREACHABLE_RETRY_MS / 1000}s, `
-        + `no attempt spent: ${summarizeError(unreachable)}`);
-      const wait = db.prepare(
-        "UPDATE memory_retry_queue SET status='pending', claimed_at=NULL, next_attempt_at=? WHERE id=?",
-      );
-      for (const rest of jobs.slice(index)) wait.run(at, rest.id);
+        `[pipeline] provider unreachable, ${jobs.length - index} job(s) wait ${UNREACHABLE_RETRY_MS / 1000}s `
+        + `or until the network returns, no attempt spent: ${summarizeError(unreachable)}`);
+      for (const rest of jobs.slice(index + 1)) release.run(rest.id);
       break;
     }
+    // Any other outcome, a failure included, means the provider answered.
+    reach.ok();
   }
   return done;
 }

@@ -225,6 +225,30 @@ export class ProviderUnreachable extends Error {
 }
 
 /**
+ * Nova Cloud has no usable session: never signed in, signed out, or the
+ * refresh token was revoked. Like an outage, it is no fault of the capture,
+ * so it spends no attempt and the queue waits for sign-in.
+ */
+export class NotSignedIn extends ProviderUnreachable {
+  constructor(message = "not signed in to Nova Cloud") {
+    super("chat", message);
+    this.name = "NotSignedIn";
+  }
+}
+
+/**
+ * Nova Cloud refused this device (blocked, or too many device keys on the
+ * account). Retrying the same capture cannot change that, so it spends no
+ * attempt; the reason is kept for the app to show.
+ */
+export class ProviderRefused extends ProviderUnreachable {
+  constructor(message: string) {
+    super("chat", message);
+    this.name = "ProviderRefused";
+  }
+}
+
+/**
  * The provider answered 200 but the answer is unusable: truncated, empty, or
  * not the JSON asked for. Retryable, and it does spend an attempt — at
  * temperature 0 the same input can fail the same way every time.
@@ -237,6 +261,8 @@ export class MalformedResponse extends Error {
 }
 
 function unreachable(kind: "chat" | "embed", e: unknown): ProviderUnreachable {
+  // A fetch wrapper (Nova Cloud's) may already have classified the failure.
+  if (e instanceof ProviderUnreachable) return e;
   return new ProviderUnreachable(kind, `${kind} unreachable: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
 }
 

@@ -36,3 +36,9 @@ CLAUDE.local.md
 
 # README screenshots (rendered from the design project, fictional data only)
 !docs/images/*.png
+
+# nova cloud proxy
+cloud/.env*
+!cloud/.env.example
+cloud/.vercel/
+cloud/supabase/.temp/

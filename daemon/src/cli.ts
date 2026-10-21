@@ -15,16 +15,18 @@
 // stdout is the wire Claude Desktop reads. All diagnostics below go to
 // stderr (console.error); console.log is used only for `search`/`status`
 // terminal output, which is never reached in the `mcp` branch.
-import { openDb, fieldKey } from "./db";
+import { openDb, fieldKey, StoreUnreadable } from "./db";
 import { ingestStream } from "./ingest";
-import { drainQueue, releaseStaleClaims } from "./pipeline";
+import { drainQueue, reachability, releaseStaleClaims } from "./pipeline";
 import { parseScope, sweepDue, sweepRetention, type DeleteScope } from "./forget";
 import { purgeSecrets } from "./purge";
 import { recordCall, type ProviderCall, type CallTotal } from "./calls";
 import { searchMemory } from "./search";
 import { resolveCaptureBin } from "./capture-bin";
 import { serveMcp, formatLoops } from "./mcp";
-import { MissingKeyProvider, UnconfiguredProvider, providerFromEnv } from "./provider";
+import { MissingKeyProvider, NotSignedIn, UnconfiguredProvider } from "./provider";
+import { NovaCloudProvider } from "./cloud";
+import { resolveProvider } from "./resolve";
 import { startControlServer, storedPause, CONTROL_SOCKET_NAME, type DaemonState } from "./control";
 import { controlRequest } from "./control-client";
 import {
@@ -39,6 +41,10 @@ import { mkdirSync } from "node:fs";
 const DIR = join(homedir(), "Library", "Application Support", "Nova");
 mkdirSync(DIR, { recursive: true });
 const DB_PATH = join(DIR, "memory.db");
+/** The store cannot be decrypted; the supervisor treats this exit as final. */
+const EXIT_STORE_UNREADABLE = 3;
+/** Serialises Nova Cloud token refreshes across the daemon and `nova mcp`. */
+const SESSION_LOCK = join(DIR, "session.lock");
 
 const cmd = process.argv[2];
 
@@ -49,7 +55,17 @@ const cmd = process.argv[2];
 // do a write-capable SQLCipher open and ask the keychain for the field key.
 // Memoized so a branch that calls it twice still opens once.
 let opened: Promise<{ db: Awaited<ReturnType<typeof openDb>>; key: Awaited<ReturnType<typeof fieldKey>> }> | undefined;
-const store = () => (opened ??= (async () => ({ db: await openDb(DB_PATH), key: await fieldKey() }))());
+const store = () => (opened ??= (async () => {
+  try {
+    return { db: await openDb(DB_PATH), key: await fieldKey() };
+  } catch (e) {
+    // Its own exit code, so the shell's supervisor stops restarting and shows
+    // why instead of looping on a store that will never open.
+    if (!(e instanceof StoreUnreadable)) throw e;
+    console.error(`[nova] ${e.message}. Nova will not read it or call Nova Cloud. Delete or restore ${DB_PATH}.`);
+    process.exit(EXIT_STORE_UNREADABLE);
+  }
+})());
 
 if (cmd === "start") {
   stampStderr();
@@ -78,14 +94,27 @@ if (cmd === "start") {
 
   const { db, key } = await store();
 
-  // providerFromEnv never throws (the MCP server depends on that), so probe
+  // resolveProvider never throws (the MCP server depends on that), so probe
   // the configuration here instead and fail before spawning capture.
   // The sink records what left the machine, for the transparency panel
   // (F5.5). recordCall swallows its own failures, so logging can never turn a
   // successful extraction into a failed one.
-  const provider = providerFromEnv(process.env, (c) => recordCall(db, c));
+  const { provider, mode, session } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
   if (provider instanceof MissingKeyProvider || provider instanceof UnconfiguredProvider) {
     await provider.extract("").catch((e) => { console.error(`[nova] ${e.message}`); process.exit(1); });
+  }
+  // Nova Cloud's probe never stops the daemon: signed out, offline or over
+  // the cap, captures are kept and wait, which is the point of the queue.
+  if (provider instanceof NovaCloudProvider) {
+    try {
+      const u = await provider.usage();
+      console.error(`[nova] Nova Cloud: ${u.plan} plan, ${u.usedToday} of ${u.capToday} tokens used today`);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(e instanceof NotSignedIn
+        ? "[nova] not signed in to Nova Cloud; captures are kept and wait for sign-in"
+        : `[nova] Nova Cloud is not answering yet (${reason}); captures are kept and wait`);
+    }
   }
 
   // Free any claim a previous run died holding, before the first drain. A
@@ -101,6 +130,13 @@ if (cmd === "start") {
       + `redacted ${purged.versions} capture(s), ${purged.memories} memories, ${purged.loops} loop(s)`);
   }
 
+  const drain = () => {
+    drainQueue(db, key, provider).catch((e) => {
+      state.lastError = e instanceof Error ? e.message : String(e);
+      console.error(`[nova] ${state.lastError}`);
+    });
+  };
+
   // Everything the control socket can be asked about, in one object shared
   // with the ingest loop. The gate is the pause flag; the rest is telemetry
   // the shell's status glyph and error line are built from.
@@ -112,6 +148,10 @@ if (cmd === "start") {
       (db.prepare("SELECT MAX(committed_at) t FROM memory_versions").get() as any).t ?? null,
     lastError: null,
     queued: () => (db.prepare("SELECT COUNT(*) c FROM memory_retry_queue WHERE parked_at IS NULL").get() as any).c,
+    unreachableSince: () => reachability.since,
+    networkUp: () => { reachability.retryNow(); drain(); },
+    session,
+    providerMode: mode,
   };
   const control = startControlServer(join(DIR, CONTROL_SOCKET_NAME), db, key, state, provider);
   console.error(`[nova] control socket -> ${join(DIR, CONTROL_SOCKET_NAME)}`);
@@ -166,10 +206,7 @@ if (cmd === "start") {
 
   setInterval(() => {
     sweepIfDue();
-    drainQueue(db, key, provider).catch((e) => {
-      state.lastError = e instanceof Error ? e.message : String(e);
-      console.error(`[nova] ${state.lastError}`);
-    });
+    drain();
   }, 15_000);
 
   await ingestStream(db, key, proc.stdout, state.gate);
@@ -179,7 +216,8 @@ if (cmd === "start") {
 } else if (cmd === "search") {
   const { db, key } = await store();
   const q = process.argv.slice(3).join(" ");
-  const hits = await searchMemory(db, key, providerFromEnv(process.env, (c) => recordCall(db, c)), q, { limit: 10 });
+  const { provider } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
+  const hits = await searchMemory(db, key, provider, q, { limit: 10 });
   for (const h of hits) {
     console.log(`${h.text}\n  ${new Date(h.at).toISOString().slice(0, 16)} · ${h.app} · ${h.url ?? h.windowTitle}\n`);
   }
@@ -197,7 +235,10 @@ if (cmd === "start") {
   const { db, key } = await store();
   // Logged like the daemon's own calls, so a query an MCP client sent shows in
   // Activity. recordCall swallows a busy store rather than fail the tool.
-  await serveMcp(db, key, providerFromEnv(process.env, (c) => recordCall(db, c)));
+  // The same session store as the daemon, so a refresh here takes the shared
+  // lock and MCP keeps working while the app is closed.
+  const { provider } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
+  await serveMcp(db, key, provider);
 } else if (cmd === "loops" || cmd === "done" || cmd === "snooze" || cmd === "dismiss"
         || cmd === "pause" || cmd === "resume" || cmd === "precision"
         || cmd === "exclude" || cmd === "exclusions" || cmd === "unexclude"

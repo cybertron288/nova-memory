@@ -4,9 +4,9 @@ import { resolveThread, commitVersion } from "../src/threads";
 import {
   enqueueExtraction, drainQueue, releaseStaleClaims, summarizeError, CLAIM_TIMEOUT_MS,
   addedLines, parkedCaptures, retryParked,
-  QuotaGate,
+  QuotaGate, Reachability,
 } from "../src/pipeline";
-import { FakeProvider, MalformedResponse, ProviderUnreachable, QuotaExhausted, type CaptureContext, type LoopExtraction, type TrackedLoop } from "../src/provider";
+import { FakeProvider, MalformedResponse, NotSignedIn, ProviderRefused, ProviderUnreachable, QuotaExhausted, type CaptureContext, type LoopExtraction, type TrackedLoop } from "../src/provider";
 import { recordLoops, listOpenLoops } from "../src/loops";
 import { handleLine } from "../src/ingest";
 import { randomBytes } from "node:crypto";
@@ -710,16 +710,46 @@ test("an unreachable provider spends no attempt and stops the drain", async () =
     extract: async () => { calls++; throw new ProviderUnreachable("chat", "chat unreachable: Unable to connect"); },
     embed: async () => [],
   };
-  const before = Date.now();
-  expect(await drainQueue(db, KEY, offline as any)).toBe(0);
+  const reach = new Reachability();
+  expect(await drainQueue(db, KEY, offline as any, new QuotaGate(), reach)).toBe(0);
   expect(calls).toBe(1);   // the second job was not tried against a dead network
-  const rows = db.prepare("SELECT attempts, next_attempt_at, parked_at FROM memory_retry_queue").all() as any[];
+  const rows = db.prepare("SELECT attempts, status, claimed_at, parked_at FROM memory_retry_queue").all() as any[];
   expect(rows.length).toBe(2);
   for (const r of rows) {
     expect(r.attempts).toBe(0);
+    expect(r.status).toBe("pending");
+    expect(r.claimed_at).toBeNull();
     expect(r.parked_at).toBeNull();
-    expect(r.next_attempt_at).toBeGreaterThan(before);
   }
+  expect(reach.since).not.toBeNull();
+
+  // Within the wait, a drain makes no call at all.
+  expect(await drainQueue(db, KEY, offline as any, new QuotaGate(), reach)).toBe(0);
+  expect(calls).toBe(1);
+});
+
+test("the network returning drains the backlog at once and clears the unreachable state", async () => {
+  const db = await openDb(":memory:");
+  const tid = resolveThread(db, KEY, rec);
+  const { versionId } = commitVersion(db, KEY, tid, rec);
+  enqueueExtraction(db, versionId);
+
+  const reach = new Reachability();
+  const offline = {
+    extract: async () => { throw new ProviderUnreachable("chat", "chat unreachable: Unable to connect"); },
+    embed: async () => [],
+  };
+  await drainQueue(db, KEY, offline as any, new QuotaGate(), reach);
+  const since = reach.since;
+  expect(since).not.toBeNull();
+
+  const online = new FakeProvider();
+  expect(await drainQueue(db, KEY, online, new QuotaGate(), reach)).toBe(0);   // still inside the wait
+  reach.retryNow();
+  expect(reach.since).toBe(since);   // still offline until a call gets through
+  expect(await drainQueue(db, KEY, online, new QuotaGate(), reach)).toBe(1);
+  expect(reach.since).toBeNull();
+  expect((db.prepare("SELECT COUNT(*) c FROM memory_retry_queue").get() as any).c).toBe(0);
 });
 
 test("the last failed attempt parks the row instead of deleting it, and retry re-queues it", async () => {
@@ -748,3 +778,20 @@ test("the last failed attempt parks the row instead of deleting it, and retry re
   expect(await drainQueue(db, KEY, new FakeProvider(["Rust enforces ownership rules."]))).toBe(1);
   expect((db.prepare("SELECT COUNT(*) c FROM memory_retry_queue").get() as any).c).toBe(0);
 });
+
+for (const [name, error] of [
+  ["a signed-out drain", () => new NotSignedIn()],
+  ["a refused device", () => new ProviderRefused("this device is blocked")],
+] as const) {
+  test(`${name} spends no attempt and keeps every capture`, async () => {
+    const db = await openDb(":memory:");
+    const tid = resolveThread(db, KEY, rec);
+    enqueueExtraction(db, commitVersion(db, KEY, tid, rec).versionId);
+    const reach = new Reachability();
+    const failing = { extract: async () => { throw error(); }, embed: async () => [] };
+    expect(await drainQueue(db, KEY, failing as any, new QuotaGate(), reach)).toBe(0);
+    const rows = db.prepare("SELECT attempts, parked_at FROM memory_retry_queue").all() as any[];
+    expect(rows).toEqual([{ attempts: 0, parked_at: null }]);
+    expect(reach.since).not.toBeNull();
+  });
+}

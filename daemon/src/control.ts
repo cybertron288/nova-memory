@@ -40,6 +40,9 @@ import {
 import { listCalls, callTotals } from "./calls";
 import { countCapturesSince, listRecentCaptures } from "./captures";
 import { parseIdentity, storeIdentity, userIdentity } from "./identity";
+import { bindAccount, checkBinding, forgetPerson, mismatchSummary } from "./account";
+import { parseSession, type SessionStore } from "./session";
+import type { ProviderMode } from "./resolve";
 
 export const CONTROL_SOCKET_NAME = "control.sock";
 
@@ -54,11 +57,64 @@ export interface DaemonState {
   lastError: string | null;
   /** Read on demand so status never holds a stale count. */
   queued: () => number;
+  /** When the provider was first found unreachable, or null when it answers. */
+  unreachableSince: () => number | null;
+  /** The network is back: drain now instead of waiting out the retry. */
+  networkUp: () => void;
+  /** Nova Cloud's session; null unless the provider mode is "cloud". */
+  session: SessionStore | null;
+  providerMode: ProviderMode;
   /**
    * daemon.log, emptied by "delete everything": it names loops in plain text.
    * Absent in tests, so a test delete never touches the user's real log.
    */
   logFile?: string;
+}
+
+const NOT_IN_USE = "Nova Cloud is not in use: a provider is configured in the environment";
+
+/**
+ * Signs in to Nova Cloud. The store belongs to one account: a different
+ * account is refused with what would be lost, and only `replaceStore: true`
+ * deletes it, before the new account is bound. If the delete fails nothing
+ * else changes, so no one is signed in over someone else's memory.
+ */
+async function setSession(
+  id: unknown, msg: Record<string, unknown>, db: Database, key: Buffer, state: DaemonState,
+): Promise<string> {
+  try {
+    if (!state.session) return reply(id, { ok: false, error: NOT_IN_USE });
+    if (msg.replaceStore !== undefined && typeof msg.replaceStore !== "boolean") {
+      return reply(id, { ok: false, error: "replaceStore must be a boolean" });
+    }
+    const session = parseSession({ accessToken: msg.accessToken, refreshToken: msg.refreshToken }, Date.now());
+    if (typeof session === "string") return reply(id, { ok: false, error: session });
+
+    const binding = checkBinding(db, key, session.userId);
+    if (binding.kind === "other") {
+      if (msg.replaceStore !== true) {
+        return reply(id, { ok: false, error: "account_mismatch", detail: { previousEmail: binding.previousEmail, ...mismatchSummary(db) } });
+      }
+      // Two steps, because a full delete ends in VACUUM, which cannot run in a
+      // transaction. Either failing leaves the old binding, so a retry repeats
+      // both and no one is bound over leftovers.
+      const deleted = deleteScope(db, { kind: "all" }, { clearCallLog: true });
+      forgetPerson(db);
+      // The previous account's session goes with its memory: if storing the new
+      // one fails below, nothing is left signed in as someone else.
+      await state.session.clear();
+      if (state.logFile) clearLogs(state.logFile);
+      console.error(`[account] a different account signed in: deleted captures=${deleted.captures} `
+        + `memories=${deleted.memories} loops=${deleted.loops}`);
+    }
+    bindAccount(db, key, session.userId, session.email);
+    await state.session.set(session);
+    state.networkUp();
+    return reply(id, { ok: true, result: { email: session.email } });
+  } catch (e) {
+    console.error(`[control] set_session failed: ${e instanceof Error ? e.message : String(e)}`);
+    return reply(id, { ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
 }
 
 /**
@@ -77,7 +133,7 @@ const OPS = new Set([
   "list_exclusions", "add_exclusion", "remove_exclusion", "list_calls",
   "list_captures", "list_blocked", "list_parked", "retry_parked",
   "data_summary", "count_for_delete", "delete_data", "set_retention",
-  "get_profile", "set_profile",
+  "get_profile", "set_profile", "network_up", "set_session", "sign_out", "account",
 ]);
 const ACTIONS = new Set<string>(["done", "snooze", "dismiss"]);
 const EXCLUSION_KINDS = new Set<string>(["app", "domain"]);
@@ -89,7 +145,9 @@ function sinceOf(msg: Record<string, unknown>): number | undefined {
     ? Math.trunc(msg.since) : undefined;
 }
 
-function reply(id: unknown, body: { ok: true; result: unknown } | { ok: false; error: string }): string {
+function reply(
+  id: unknown, body: { ok: true; result: unknown } | { ok: false; error: string; detail?: unknown },
+): string {
   // JSON.stringify escapes any newline inside a value, so the reply is
   // always exactly one line — the client frames on "\n" and must never see
   // a raw one inside a loop description.
@@ -151,6 +209,7 @@ export function handleControlLine(
           capturing: !state.gate.paused,
           paused: state.gate.paused,
           queued: state.queued(),
+          unreachableSince: state.unreachableSince(),
           lastCaptureAt: state.lastCaptureAt(),
           lastError: state.lastError,
           uptimeMs: Date.now() - state.startedAt,
@@ -387,6 +446,25 @@ export function handleControlLine(
         const limit = typeof msg.limit === "number" ? msg.limit : 30;
         return reply(id, { ok: true, result: listMemories(db, key, limit) });
       }
+
+      case "set_session":
+        return setSession(id, msg, db, key, state);
+
+      case "sign_out":
+        if (!state.session) return reply(id, { ok: false, error: NOT_IN_USE });
+        return state.session.clear().then(() => reply(id, { ok: true, result: {} }));
+
+      case "account": {
+        const session = state.session;
+        if (!session) return reply(id, { ok: true, result: { mode: state.providerMode, signedIn: false, email: null, refusal: null } });
+        return session.get().then((s) => reply(id, { ok: true, result: {
+          mode: state.providerMode, signedIn: s !== null, email: s?.email ?? null, refusal: session.lastRefusal,
+        }}));
+      }
+
+      case "network_up":
+        state.networkUp();
+        return reply(id, { ok: true, result: {} });
 
       case "pause":
         state.gate.paused = true;

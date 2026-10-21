@@ -23,7 +23,7 @@ Milestones (M) are in `roadmap.md`.
 | F1.3 | Detect meetings and capture microphone and system audio. | not built — proven only in an M0 spike |
 | F1.4 | Drop repeated captures: chrome-only changes, unchanged text, and moving relative timestamps (R3). | built |
 | F1.5 | Stop capturing when the user is idle or the display is asleep. | not built — capture samples every 3 s; deduplication keeps repeats out of the store |
-| F1.6 | Keep capturing offline and process the queue when the network returns. | partial — an unreachable provider spends no retry attempt; there is no offline detection or offline status |
+| F1.6 | Keep capturing offline and process the queue when the network returns. | built — an unreachable provider spends no retry attempt and pauses the drain; the shell watches the network path, shows "capturing offline · N queued", and has the daemon drain the moment the path returns |
 | F1.7 | Clipboard capture, opt-in. | not built |
 
 ## F2 — Memory engine
@@ -53,7 +53,7 @@ Milestones (M) are in `roadmap.md`.
 |---|---|---|
 | F4.1 | Find open loops: commitments made, commitments received, unanswered questions, stalled threads. Each has a description, counterparty, evidence, due signal and state. | built |
 | F4.2 | Close a loop when a later capture shows it was done, quoting the evidence. | built |
-| F4.3 | Morning digest of the top open loops. | partial — the in-app digest card is built; the macOS notification is not |
+| F4.3 | Morning digest of the top open loops. | built — the digest card, shown once a day under the menu bar glyph from 9:00, only when there are loops |
 | F4.4 | Act on a loop: done, snooze, dismiss. | built — panel keys, CLI and control socket |
 | F4.4a | Open the source a loop came from. | deferred (D23) — cannot yet land on the right message in every app |
 | F4.5 | Precision over recall: the user rates loops real or not, and Nova reports the share rated real. | built — `rate_loop` and `nova precision` |
@@ -77,7 +77,7 @@ Milestones (M) are in `roadmap.md`.
 | F6.2 | First-run onboarding: permissions, capture policy, provider setup, MCP connection. | not built |
 | F6.3 | Launch at login, automatic updates, signed and notarized build. | not built — the app is signed for local development only |
 | F6.4 | Accounts and billing. | not planned for the open-source app |
-| F6.5 | Self-hosted server components. | not planned — Nova has no server component (D28) |
+| F6.5 | Nova Cloud: use Nova without your own key. | partial — the proxy (`cloud/`) and the daemon side are built; sign-in in the app is not (`nova-cloud-design.md`) |
 | F6.6 | Open source: public repository, AGPL-3.0, contribution guide. | partial — license and community files are in place; the repository is being prepared for release |
 
 ## F7 — Shared memory between people

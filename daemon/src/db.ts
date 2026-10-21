@@ -54,12 +54,35 @@ export function decryptField(stored: string, key: Buffer): string {
   return d.update(raw.subarray(28)).toString("utf8") + d.final("utf8");
 }
 
+/**
+ * The store cannot be decrypted: its bytes were edited, or the Keychain key
+ * is not the one it was written with. SQLCipher authenticates every page, so
+ * either reads as "not a database". Nova does not read on, and does not call
+ * Nova Cloud, until the user deletes or restores the file.
+ */
+export class StoreUnreadable extends Error {
+  constructor(path: string, cause: unknown) {
+    super(`the store at ${path} cannot be decrypted: it was edited or its key changed`, { cause });
+    this.name = "StoreUnreadable";
+  }
+}
+
 export async function openDb(path: string): Promise<Database> {
   if (!customSqliteSet) { Database.setCustomSQLite(SQLCIPHER); customSqliteSet = true; }
   const dbKey = await getOrCreateKey("db");
   const db = new Database(path);
   // The key must be set before any other statement touches the file.
   db.exec(`PRAGMA key = "x'${dbKey.toString("hex")}'";`);
+  // The first read decrypts page 1; a wrong key or an edited page fails here.
+  try {
+    db.prepare("SELECT count(*) FROM sqlite_master").get();
+  } catch (e) {
+    db.close();
+    if (/not a database|malformed|corrupt/i.test(e instanceof Error ? e.message : String(e))) {
+      throw new StoreUnreadable(path, e);
+    }
+    throw e;
+  }
   db.exec("PRAGMA journal_mode = WAL;");
   // Owner-only, like daemon.log. The file is encrypted, but who can copy it
   // is still worth limiting: a stolen copy is an offline attack on the key.

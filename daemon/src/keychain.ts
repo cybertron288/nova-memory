@@ -59,3 +59,41 @@ export async function getOrCreateKey(account: string): Promise<Buffer> {
   }
   return key;
 }
+
+/**
+ * A string item, or null only when the item genuinely does not exist.
+ * Stored base64-encoded, so any value survives `security -i`'s tokenizer.
+ */
+export async function readSecret(account: string): Promise<string | null> {
+  const found = await run(["find-generic-password", "-s", SERVICE, "-a", account, "-w"]);
+  if (found.ok) return Buffer.from(found.out, "base64").toString("utf8");
+  if (isGenuinelyAbsent(found.code)) return null;
+  throw new Error(`keychain: cannot read ${account}: ${found.err}`);
+}
+
+/**
+ * Written through `security -i` on stdin, never as an argument: a session is
+ * rewritten every hour and holds the whole account, and arguments show in any
+ * process listing on the Mac.
+ */
+export async function writeSecret(account: string, value: string): Promise<void> {
+  const encoded = Buffer.from(value, "utf8").toString("base64");
+  const p = Bun.spawn(["security", "-i"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  p.stdin.write(`add-generic-password -U -s ${SERVICE} -a ${account} -w ${encoded}\n`);
+  await p.stdin.end();
+  const [, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+  await p.exited;
+  // `security -i` exits 0 even when a command inside it fails, so read back.
+  const stored = await run(["find-generic-password", "-s", SERVICE, "-a", account, "-w"]);
+  if (!stored.ok || stored.out !== encoded) {
+    throw new Error(`keychain: could not store ${account}: ${err.trim() || stored.err}`);
+  }
+}
+
+/**
+ * This Mac's Nova Cloud device key. Random, so it says nothing about the
+ * machine; Nova Cloud stores only its hash.
+ */
+export async function deviceKey(): Promise<string> {
+  return (await getOrCreateKey("device")).toString("hex");
+}

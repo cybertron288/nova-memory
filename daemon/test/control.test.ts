@@ -2,10 +2,15 @@ import { test, expect } from "bun:test";
 import { openDb, encryptField } from "../src/db";
 import { recordLoops, listOpenLoops } from "../src/loops";
 import { handleControlLine, startControlServer, storedPause, type DaemonState } from "../src/control";
-import type { LoopCandidate } from "../src/provider";
+import { FakeProvider, type LoopCandidate } from "../src/provider";
+import { checkBinding } from "../src/account";
+import { storeIdentity, storedIdentity } from "../src/identity";
+import { addExclusion } from "../src/exclusions";
+import { drainQueue, enqueueExtraction } from "../src/pipeline";
+import { SessionStore } from "../src/session";
 import { resolveThread, commitVersion } from "../src/threads";
 import { randomBytes } from "node:crypto";
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +29,10 @@ function freshState(db: any): DaemonState {
     lastCaptureAt: () => null,
     lastError: null,
     queued: () => (db.prepare("SELECT COUNT(*) c FROM memory_retry_queue").get() as any).c,
+    unreachableSince: () => null,
+    networkUp: () => {},
+    session: null,
+    providerMode: "env",
   };
 }
 
@@ -84,6 +93,18 @@ test("status reports capturing, paused, queued and uptime", async () => {
   expect(r.result.lastError).toBeNull();
   expect(r.result.pid).toBe(process.pid);
   expect(typeof r.result.uptimeMs).toBe("number");
+  expect(r.result.unreachableSince).toBeNull();
+});
+
+test("status reports since when the provider is unreachable, and network_up asks for a drain", async () => {
+  const db = await openDb(":memory:");
+  let kicks = 0;
+  const state = { ...freshState(db), unreachableSince: () => 1_700_000_000_000, networkUp: () => { kicks++; } };
+  const status = parse(handleControlLine(req({ id: 1, op: "status" }), db, KEY, state));
+  expect(status.result.unreachableSince).toBe(1_700_000_000_000);
+  const up = parse(handleControlLine(req({ id: 2, op: "network_up" }), db, KEY, state));
+  expect(up).toEqual({ id: 2, ok: true, result: {} });
+  expect(kicks).toBe(1);
 });
 
 test("list_loops returns the same rows listOpenLoops does", async () => {
@@ -629,4 +650,159 @@ test("list_blocked returns the hard list, the user list and the counts together"
   expect(r.result.exclusions[0].value).toBe("Notes");
   expect(r.result.exclusions[0].skipped).toBe(0);
   expect(r.result.skipped).toBeDefined();
+});
+
+
+// --- Nova Cloud: set_session, sign_out, account --------------------------------
+
+function cloudState(db: any) {
+  let stored: string | null = null;
+  const session = new SessionStore({
+    secrets: { read: async () => stored, write: async (v) => { stored = v; }, remove: async () => { stored = null; } },
+    lockPath: join(mkdtempSync(join(tmpdir(), "nova-control-")), "session.lock"),
+    refresh: async () => ({ status: 400, body: null }),
+  });
+  let drains = 0;
+  const state: DaemonState = { ...freshState(db), session, providerMode: "cloud", networkUp: () => { drains++; } };
+  return { state, session, drains: () => drains };
+}
+
+function jwtFor(sub: string, email: string, expMs = Date.now() + 3_600_000): string {
+  const part = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${part({ alg: "ES256" })}.${part({ sub, email, exp: Math.floor(expMs / 1000) })}.sig`;
+}
+const signIn = (sub: string, email: string, extra: object = {}) =>
+  req({ id: 1, op: "set_session", accessToken: jwtFor(sub, email), refreshToken: "r", ...extra });
+const ask = async (line: string, db: any, state: DaemonState) => parse(await handleControlLine(line, db, KEY, state));
+
+async function seedCapture(db: any) {
+  const rec = {
+    ts: 1_790_000_000_000, app: "Slack", bundleId: "com.test.slack", windowTitle: "DM", url: null,
+    content: "Alex will send the deck.", contentHash: "sha256:a", treeHash: "sha256:t",
+  };
+  const { versionId } = commitVersion(db, KEY, resolveThread(db, KEY, rec), rec);
+  enqueueExtraction(db, versionId);
+  await drainQueue(db, KEY, new FakeProvider(["Alex owes the deck"]));
+  await recordLoops(db, KEY, [commitment], null);
+  return rec.ts;
+}
+
+test("set_session on an unbound store signs in and binds it", async () => {
+  const db = await openDb(":memory:");
+  const { state, session, drains } = cloudState(db);
+  const r = await ask(signIn("u1", "a@example.com"), db, state);
+  expect(r).toEqual({ id: 1, ok: true, result: { email: "a@example.com" } });
+  expect((await session.get())?.userId).toBe("u1");
+  expect(checkBinding(db, KEY, "u1")).toEqual({ kind: "same" });
+  expect(drains()).toBe(1);
+});
+
+test("set_session for the same account keeps the store", async () => {
+  const db = await openDb(":memory:");
+  const { state } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  await seedCapture(db);
+  expect((await ask(signIn("u1", "a@example.com"), db, state)).ok).toBe(true);
+  expect((db.prepare("SELECT COUNT(*) c FROM memory_versions").get() as any).c).toBe(1);
+});
+
+test("set_session for another account is refused with the masked previous email and counts", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  const since = await seedCapture(db);
+  const r = await ask(signIn("u2", "b@example.com"), db, state);
+  expect(r).toEqual({
+    id: 1, ok: false, error: "account_mismatch",
+    detail: { previousEmail: "a•••@example.com", memories: 1, loops: 1, since },
+  });
+  expect((await session.get())?.userId).toBe("u1");
+});
+
+test("replaceStore deletes everything, then binds the new account", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  await seedCapture(db);
+  expect((await ask(signIn("u2", "b@example.com", { replaceStore: true }), db, state)).ok).toBe(true);
+  expect((db.prepare("SELECT COUNT(*) c FROM memory_versions").get() as any).c).toBe(0);
+  expect(checkBinding(db, KEY, "u2")).toEqual({ kind: "same" });
+  expect((await session.get())?.userId).toBe("u2");
+});
+
+test("a failed delete leaves the old binding and stores no new session", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  await seedCapture(db);
+  db.exec("DROP TABLE loop_evidence");
+  const r = await ask(signIn("u2", "b@example.com", { replaceStore: true }), db, state);
+  expect(r.ok).toBe(false);
+  expect(checkBinding(db, KEY, "u2").kind).toBe("other");
+  expect((await session.get())?.userId).toBe("u1");
+});
+
+for (const [name, line] of [
+  ["a malformed token", req({ id: 1, op: "set_session", accessToken: "nope", refreshToken: "r" })],
+  ["an expired token", req({ id: 1, op: "set_session", accessToken: jwtFor("u1", "a@example.com", Date.now() - 1000), refreshToken: "r" })],
+  ["a non-boolean replaceStore", signIn("u1", "a@example.com", { replaceStore: "yes" })],
+] as const) {
+  test(`set_session refuses ${name}`, async () => {
+    const db = await openDb(":memory:");
+    const { state, session } = cloudState(db);
+    expect((await ask(line, db, state)).ok).toBe(false);
+    expect(await session.get()).toBeNull();
+  });
+}
+
+test("sign_out clears the session and keeps the binding", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  expect(await ask(req({ id: 2, op: "sign_out" }), db, state)).toEqual({ id: 2, ok: true, result: {} });
+  expect(await session.get()).toBeNull();
+  expect(checkBinding(db, KEY, "u1")).toEqual({ kind: "same" });
+});
+
+test("account reports mode, email and the last refusal", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  expect((await ask(req({ id: 3, op: "account" }), db, state)).result)
+    .toEqual({ mode: "cloud", signedIn: false, email: null, refusal: null });
+  await ask(signIn("u1", "a@example.com"), db, state);
+  session.lastRefusal = "this device is blocked";
+  expect((await ask(req({ id: 3, op: "account" }), db, state)).result)
+    .toEqual({ mode: "cloud", signedIn: true, email: "a@example.com", refusal: "this device is blocked" });
+});
+
+test("set_session in env mode is refused", async () => {
+  const db = await openDb(":memory:");
+  const r = await ask(signIn("u1", "a@example.com"), db, freshState(db));
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain("not in use");
+});
+
+test("replaceStore also forgets the previous person's profile and preferences", async () => {
+  const db = await openDb(":memory:");
+  const { state } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  storeIdentity(db, KEY, { name: "Alex", aliases: ["alex@example.com"] });
+  addExclusion(db, KEY, { kind: "domain", value: "alex-bank.example" });
+  db.prepare("INSERT INTO skip_counts (rule_id, skipped, last_at) VALUES ('r', 3, 1)").run();
+  db.prepare("INSERT INTO store_metadata (key, value) VALUES ('retention_raw_days', '7')").run();
+  expect((await ask(signIn("u2", "b@example.com", { replaceStore: true }), db, state)).ok).toBe(true);
+  expect(storedIdentity(db, KEY)).toBeUndefined();
+  expect((db.prepare("SELECT COUNT(*) c FROM user_exclusions").get() as any).c).toBe(0);
+  expect((db.prepare("SELECT COUNT(*) c FROM skip_counts").get() as any).c).toBe(0);
+  expect(db.prepare("SELECT 1 FROM store_metadata WHERE key='retention_raw_days'").get()).toBeNull();
+});
+
+test("if the new session cannot be stored after a switch, the old one is gone too", async () => {
+  const db = await openDb(":memory:");
+  const { state, session } = cloudState(db);
+  await ask(signIn("u1", "a@example.com"), db, state);
+  session.set = async () => { throw new Error("keychain: could not store session"); };
+  const r = await ask(signIn("u2", "b@example.com", { replaceStore: true }), db, state);
+  expect(r.ok).toBe(false);
+  expect(await session.get()).toBeNull();
 });
