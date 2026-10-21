@@ -184,3 +184,21 @@ test("usage never calls the upstream", async () => {
   await getUsage(fakeDeps({ upstream }), await mintToken({ sub: "u1" }));
   expect(upstream.calls).toHaveLength(0);
 });
+
+// --- review fixes --------------------------------------------------------------
+
+test("an upstream 401 becomes 502 and never reveals the provider key", async () => {
+  const upstream = fakeUpstream(() => new Response('{"error":"Incorrect API key provided: chat-key"}', { status: 401 }));
+  const res = await post(fakeDeps({ upstream }), "/v1/chat/completions", chatBody());
+  expect(res.status).toBe(502);
+  expect(await res.text()).not.toContain("chat-key");
+});
+
+test("a relayed upstream error never contains the provider keys", async () => {
+  const upstream = fakeUpstream(() => new Response("bad request for key chat-key and embed-key", { status: 400 }));
+  const res = await post(fakeDeps({ upstream }), "/v1/chat/completions", chatBody());
+  expect(res.status).toBe(400);
+  const text = await res.text();
+  expect(text).not.toContain("chat-key");
+  expect(text).not.toContain("embed-key");
+});

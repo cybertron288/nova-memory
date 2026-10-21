@@ -107,7 +107,16 @@ export function createApp(deps: Deps): Hono {
     const headers: Record<string, string> = { "content-type": reply.headers.get("content-type") ?? "application/json" };
     const retryAfter = reply.headers.get("retry-after");
     if (retryAfter) headers["retry-after"] = retryAfter;
-    if (!reply.ok) return done(new Response(text, { status: reply.status, headers }));
+    if (!reply.ok) {
+      // The upstream refusing the owner's key is an outage, not the user's
+      // session: a relayed 401 would read to the daemon as "sign in again".
+      if (reply.status === 401 || reply.status === 403) {
+        line.upstream = reply.status;
+        return done(c.json({ error: "the model provider refused Nova Cloud's credentials" }, 502));
+      }
+      const redacted = [config.chat.apiKey, config.embed.apiKey].reduce((t, k) => t.replaceAll(k, "[key]"), text);
+      return done(new Response(redacted, { status: reply.status, headers }));
+    }
 
     let body: unknown = null;
     try { body = JSON.parse(text); } catch { /* counted by estimate */ }
