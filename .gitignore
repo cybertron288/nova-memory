@@ -40,3 +40,4 @@ CLAUDE.local.md
 # nova cloud proxy
 cloud/.env*
 cloud/.vercel/
+cloud/supabase/.temp/
