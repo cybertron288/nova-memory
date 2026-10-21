@@ -19,7 +19,7 @@ its own detailed plan when it starts; this document details Phase A only.
 | Phase | Delivers | Depends on |
 |---|---|---|
 | **A. Proxy core** (this plan) | `cloud/`: auth, shape checks, per-device and per-account caps, IP limits, forwarding, usage, schema, preview deploy. | Nothing |
-| B. Daemon | Device key, session storage with lock-coordinated refresh, `NotSignedIn`, Nova Cloud provider, account binding and `account_mismatch`, damaged-store refusal, Nova Cloud 503 treated as unreachable (no attempt spent). | A's wire format |
+| B. Daemon | Device key, session storage with lock-coordinated refresh, `NotSignedIn`, Nova Cloud provider, account binding and `account_mismatch`, damaged-store refusal. Proxy responses the daemon must handle: 502 and 503 treated as unreachable (no attempt spent); 403 (blocked device, too many device keys) a terminal state shown to the user, not 8 retries then parked; 413 avoided by capping capture text sent to Nova Cloud below the proxy's 256 KiB body limit. | A's wire format |
 | C. Shell and launch | Sign-in sheet and `nova://` scheme, the account-switch warning, Account pane; production deploy, keepalive cron, docs (privacy, README, providers, D28, features, the deferred Apple D-item). | A, B |
 | *Deferred* | Signed bundled daemon, DeviceCheck, App Attest, Sign in with Apple. | Apple Developer Program |
 

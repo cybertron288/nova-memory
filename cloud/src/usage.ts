@@ -40,3 +40,10 @@ export function costMicros(kind: UpstreamKind, t: Tokens, prices: PriceTable): n
     ? t.in * prices.embedPerMTok
     : t.in * prices.chatInPerMTok + t.out * prices.chatOutPerMTok);
 }
+
+/** The most a request can cost: its input, plus the reply's max_tokens. */
+export function worstCase(kind: UpstreamKind, body: ChatBody | EmbedBody): number {
+  if (kind === "embed") return estimate((body as EmbedBody).input.reduce((n, s) => n + s.length, 0));
+  const chat = body as ChatBody;
+  return estimate(chat.messages[0].content.length) + chat.max_tokens;
+}

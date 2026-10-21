@@ -32,7 +32,16 @@ export interface Ledger {
   /** One cheap round trip. Keeps a free Supabase project from pausing. */
   ping(): Promise<void>;
   allowance(k: LedgerKey): Promise<Allowance>;
-  consume(k: LedgerKey, tokensIn: number, tokensOut: number, costMicros: number): Promise<void>;
+  /**
+   * Holds a request's worst-case token count against the device and the
+   * account before it is forwarded, atomically, so concurrent requests cannot
+   * all pass a cap that each saw unspent. False when either would exceed `cap`.
+   */
+  reserve(k: LedgerKey, tokens: number, cap: number): Promise<boolean>;
+  /** Gives a reservation back when the request was not answered. */
+  release(k: LedgerKey, tokens: number): Promise<void>;
+  /** Records the real count and drops the request's reservation. */
+  consume(k: LedgerKey, tokensIn: number, tokensOut: number, costMicros: number, reservedTokens: number): Promise<void>;
 }
 
 export class SupabaseLedger implements Ledger {
@@ -66,10 +75,27 @@ export class SupabaseLedger implements Ledger {
     };
   }
 
-  async consume(k: LedgerKey, tokensIn: number, tokensOut: number, costMicros: number): Promise<void> {
+  async reserve(k: LedgerKey, tokens: number, cap: number): Promise<boolean> {
+    const { data, error } = await this.db.rpc("reserve_tokens", {
+      p_user: k.userId, p_device: k.deviceHash, p_day: k.day, p_tokens: tokens, p_cap: cap,
+    });
+    if (error || typeof data !== "boolean") {
+      throw new LedgerUnavailable(`reserve_tokens: ${error?.message ?? "no answer"}`, { cause: error });
+    }
+    return data;
+  }
+
+  async release(k: LedgerKey, tokens: number): Promise<void> {
+    const { error } = await this.db.rpc("release_tokens", {
+      p_user: k.userId, p_device: k.deviceHash, p_day: k.day, p_tokens: tokens,
+    });
+    if (error) throw new LedgerUnavailable(`release_tokens: ${error.message}`, { cause: error });
+  }
+
+  async consume(k: LedgerKey, tokensIn: number, tokensOut: number, costMicros: number, reservedTokens: number): Promise<void> {
     const { error } = await this.db.rpc("consume_tokens", {
       p_user: k.userId, p_device: k.deviceHash, p_ip: k.ipHash, p_day: k.day, p_month: k.month,
-      p_in: tokensIn, p_out: tokensOut, p_cost_micros: costMicros,
+      p_in: tokensIn, p_out: tokensOut, p_cost_micros: costMicros, p_reserved: reservedTokens,
     });
     if (error) throw new LedgerUnavailable(`consume_tokens: ${error.message}`, { cause: error });
   }

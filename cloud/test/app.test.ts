@@ -226,3 +226,39 @@ test("the client IP is Vercel's x-real-ip, not a client-supplied forwarded-for e
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]!);
 });
+
+test("concurrent requests cannot together pass the daily cap", async () => {
+  let open!: () => void;
+  const gate = new Promise<void>((r) => { open = r; });
+  const upstream = fakeUpstream(() => Response.json(chatReply("{}", { prompt_tokens: 1, completion_tokens: 1 })));
+  const slow = Object.assign(async (kind: Parameters<typeof upstream>[0], body: Parameters<typeof upstream>[1]) => {
+    await gate;
+    return upstream(kind, body);
+  }, { calls: upstream.calls });
+  const ledger = new FakeLedger();
+  // Room for one request's worst case (1 input token + max_tokens 4096), not two.
+  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 1_000_000 - 5000, out: 0, requests: 1 });
+  const deps = fakeDeps({ upstream: slow, ledger });
+  const pending = Promise.all([1, 2, 3].map(() => post(deps, "/v1/chat/completions", chatBody())));
+  await new Promise((r) => setTimeout(r, 20));
+  open();
+  const statuses = (await pending).map((r) => r.status).sort();
+  expect(statuses).toEqual([200, 429, 429]);
+  expect(upstream.calls).toHaveLength(1);
+});
+
+test("an upstream error releases the request's reservation", async () => {
+  const upstream = fakeUpstream(() => new Response("upstream broke", { status: 500 }));
+  const ledger = new FakeLedger();
+  await post(fakeDeps({ upstream, ledger }), "/v1/chat/completions", chatBody());
+  expect(ledger.reservedFor(`d:${hashDevice(DEVICE)}`, DAY)).toBe(0);
+  expect(ledger.reservedFor("u:u1", DAY)).toBe(0);
+});
+
+test("a successful request replaces its reservation with the real count", async () => {
+  const upstream = fakeUpstream(() => Response.json(chatReply("{}", { prompt_tokens: 10, completion_tokens: 2 })));
+  const ledger = new FakeLedger();
+  await post(fakeDeps({ upstream, ledger }), "/v1/chat/completions", chatBody());
+  expect(ledger.reservedFor("u:u1", DAY)).toBe(0);
+  expect(ledger.used("u:u1", DAY)).toEqual({ in: 10, out: 2, requests: 1 });
+});

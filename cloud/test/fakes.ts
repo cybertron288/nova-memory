@@ -33,7 +33,32 @@ export class FakeLedger implements Ledger {
   };
   /** Keyed `${subject}|${day}`, subject `d:<device hash>` or `u:<user id>`. */
   usage = new Map<string, Usage>();
+  reserved = new Map<string, number>();
   spend = new Map<string, number>();
+
+  reservedFor(subject: string, day: string): number {
+    return this.reserved.get(`${subject}|${day}`) ?? 0;
+  }
+
+  private total(subject: string, day: string): number {
+    const u = this.used(subject, day);
+    return u.in + u.out + this.reservedFor(subject, day);
+  }
+
+  async reserve(k: LedgerKey, tokens: number, cap: number): Promise<boolean> {
+    if (this.down) throw new LedgerUnavailable("fake ledger is down");
+    const subjects = [`d:${k.deviceHash}`, `u:${k.userId}`];
+    if (subjects.some((s) => this.total(s, k.day) + tokens > cap)) return false;
+    for (const s of subjects) this.reserved.set(`${s}|${k.day}`, this.reservedFor(s, k.day) + tokens);
+    return true;
+  }
+
+  async release(k: LedgerKey, tokens: number): Promise<void> {
+    if (this.down) throw new LedgerUnavailable("fake ledger is down");
+    for (const s of [`d:${k.deviceHash}`, `u:${k.userId}`]) {
+      this.reserved.set(`${s}|${k.day}`, Math.max(0, this.reservedFor(s, k.day) - tokens));
+    }
+  }
 
   async ping(): Promise<void> {
     if (this.down) throw new LedgerUnavailable("fake ledger is down");
@@ -46,17 +71,17 @@ export class FakeLedger implements Ledger {
 
   async allowance(k: LedgerKey): Promise<Allowance> {
     if (this.down) throw new LedgerUnavailable("fake ledger is down");
-    const total = (u: Usage) => u.in + u.out;
     return {
       ...this.state,
-      deviceUsedToday: total(this.used(`d:${k.deviceHash}`, k.day)),
-      accountUsedToday: total(this.used(`u:${k.userId}`, k.day)),
+      deviceUsedToday: this.total(`d:${k.deviceHash}`, k.day),
+      accountUsedToday: this.total(`u:${k.userId}`, k.day),
       monthCostMicros: this.spend.get(k.month) ?? 0,
     };
   }
 
-  async consume(k: LedgerKey, tokensIn: number, tokensOut: number, costMicros: number): Promise<void> {
+  async consume(k: LedgerKey, tokensIn: number, tokensOut: number, costMicros: number, reservedTokens: number): Promise<void> {
     if (this.down) throw new LedgerUnavailable("fake ledger is down");
+    await this.release(k, reservedTokens);
     for (const subject of [`d:${k.deviceHash}`, `u:${k.userId}`]) {
       const u = this.used(subject, k.day);
       this.usage.set(`${subject}|${k.day}`, { in: u.in + tokensIn, out: u.out + tokensOut, requests: u.requests + 1 });

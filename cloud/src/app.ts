@@ -2,11 +2,11 @@ import { Hono, type Context } from "hono";
 import type { Config } from "./config";
 import { hashDevice, hashIp } from "./device";
 import { LedgerUnavailable, type Ledger, type LedgerKey } from "./ledger";
-import { dayKey, decide, monthKey, nextUtcMidnight } from "./limits";
+import { dayKey, decide, monthKey, nextUtcMidnight, secondsUntilUtcMidnight } from "./limits";
 import { Unauthorized, type VerifySession } from "./session";
 import { validateChat, validateEmbed, type ChatBody, type EmbedBody, type Shaped } from "./shape";
 import type { Upstream, UpstreamKind } from "./upstream";
-import { costMicros, tokensFrom, type Tokens } from "./usage";
+import { costMicros, tokensFrom, worstCase, type Tokens } from "./usage";
 
 export interface Deps {
   config: Config;
@@ -90,24 +90,44 @@ export function createApp(deps: Deps): Hono {
     const key: LedgerKey = { userId, deviceHash, ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now) };
 
     // Fail closed: without a ledger nothing is counted, so nothing is forwarded.
-    let decision;
-    try {
-      decision = decide(await deps.ledger.allowance(key), now, config.monthlyCeilingUsd, config.ipDailyLimit);
-    } catch (e) {
-      if (!(e instanceof LedgerUnavailable)) throw e;
+    const unavailable = () => {
       line.ledger = "unavailable";
       return done(c.json({ error: "Nova Cloud is unavailable" }, 503, { "retry-after": LEDGER_RETRY_S }));
+    };
+    const reserved = worstCase(kind, shaped.body);
+    try {
+      const allowance = await deps.ledger.allowance(key);
+      const decision = decide(allowance, now, config.monthlyCeilingUsd, config.ipDailyLimit);
+      if (!decision.ok) {
+        const headers: Record<string, string> = decision.retryAfter ? { "retry-after": String(decision.retryAfter) } : {};
+        return done(c.json({ error: decision.error }, decision.status, headers));
+      }
+      if (!(await deps.ledger.reserve(key, reserved, allowance.cap))) {
+        return done(c.json({ error: "today's Nova Cloud allowance is used up" }, 429,
+          { "retry-after": String(secondsUntilUtcMidnight(now)) }));
+      }
+    } catch (e) {
+      if (!(e instanceof LedgerUnavailable)) throw e;
+      return unavailable();
     }
-    if (!decision.ok) {
-      const headers: Record<string, string> = decision.retryAfter ? { "retry-after": String(decision.retryAfter) } : {};
-      return done(c.json({ error: decision.error }, decision.status, headers));
-    }
+
+    // From here every exit settles the reservation: released when nothing
+    // came back, replaced by the real count when something did.
+    const release = async () => {
+      try {
+        await deps.ledger.release(key, reserved);
+      } catch (e) {
+        if (!(e instanceof LedgerUnavailable)) throw e;
+        line.ledger = "release failed";
+      }
+    };
 
     let reply: Response;
     try {
       reply = await deps.upstream(kind, shaped.body);
     } catch (e) {
       line.upstream = e instanceof Error ? e.name : "error";
+      await release();
       return done(c.json({ error: "the model provider could not be reached" }, 502));
     }
 
@@ -118,6 +138,7 @@ export function createApp(deps: Deps): Hono {
     const retryAfter = reply.headers.get("retry-after");
     if (retryAfter) headers["retry-after"] = retryAfter;
     if (!reply.ok) {
+      await release();
       // The upstream refusing the owner's key is an outage, not the user's
       // session: a relayed 401 would read to the daemon as "sign in again".
       if (reply.status === 401 || reply.status === 403) {
@@ -134,7 +155,7 @@ export function createApp(deps: Deps): Hono {
     line.in = tokens.in;
     line.out = tokens.out;
     try {
-      await deps.ledger.consume(key, tokens.in, tokens.out, costMicros(kind, tokens, config.prices));
+      await deps.ledger.consume(key, tokens.in, tokens.out, costMicros(kind, tokens, config.prices), reserved);
     } catch (e) {
       // The work was done and paid for; the reply still goes back.
       if (!(e instanceof LedgerUnavailable)) throw e;

@@ -32,13 +32,15 @@ create table account_devices (
 );
 
 -- subject is 'd:<device hash>' or 'u:<user id>'. Each request adds to both,
--- and the cap applies to each.
+-- and the cap applies to each. reserved holds the worst case of requests in
+-- flight, so concurrent requests cannot all pass a cap each saw unspent.
 create table usage_daily (
   subject text not null,
   day date not null,
   tokens_in bigint not null default 0,
   tokens_out bigint not null default 0,
   requests integer not null default 0,
+  reserved bigint not null default 0 check (reserved >= 0),
   primary key (subject, day)
 );
 
@@ -125,9 +127,9 @@ begin
   return jsonb_build_object(
     'plan', v_plan,
     'cap', v_cap,
-    'device_used_today', coalesce((select tokens_in + tokens_out from usage_daily
+    'device_used_today', coalesce((select tokens_in + tokens_out + reserved from usage_daily
                                     where subject = 'd:' || p_device and day = p_day), 0),
-    'account_used_today', coalesce((select tokens_in + tokens_out from usage_daily
+    'account_used_today', coalesce((select tokens_in + tokens_out + reserved from usage_daily
                                      where subject = 'u:' || p_user::text and day = p_day), 0),
     'month_cost_micros', coalesce((select cost_micros from spend_monthly where month = p_month), 0),
     'device_linked', v_linked,
@@ -137,9 +139,42 @@ begin
 end;
 $$;
 
+-- Holds p_tokens against both subjects, or neither. Rows are locked in a fixed
+-- order so two requests cannot deadlock.
+create function reserve_tokens(
+  p_user uuid, p_device text, p_day date, p_tokens bigint, p_cap bigint
+) returns boolean
+language plpgsql
+set search_path = public
+as $$
+begin
+  insert into usage_daily (subject, day) values ('d:' || p_device, p_day), ('u:' || p_user::text, p_day)
+  on conflict do nothing;
+  perform 1 from usage_daily
+    where day = p_day and subject in ('d:' || p_device, 'u:' || p_user::text)
+    order by subject for update;
+  if exists (select 1 from usage_daily
+              where day = p_day and subject in ('d:' || p_device, 'u:' || p_user::text)
+                and tokens_in + tokens_out + reserved + p_tokens > p_cap) then
+    return false;
+  end if;
+  update usage_daily set reserved = reserved + p_tokens
+    where day = p_day and subject in ('d:' || p_device, 'u:' || p_user::text);
+  return true;
+end;
+$$;
+
+create function release_tokens(p_user uuid, p_device text, p_day date, p_tokens bigint) returns void
+language sql
+set search_path = public
+as $$
+  update usage_daily set reserved = greatest(0, reserved - p_tokens)
+    where day = p_day and subject in ('d:' || p_device, 'u:' || p_user::text);
+$$;
+
 create function consume_tokens(
   p_user uuid, p_device text, p_ip text, p_day date, p_month text,
-  p_in integer, p_out integer, p_cost_micros bigint
+  p_in integer, p_out integer, p_cost_micros bigint, p_reserved bigint
 ) returns void
 language sql
 set search_path = public
@@ -149,7 +184,8 @@ as $$
   on conflict (subject, day) do update set
     tokens_in = usage_daily.tokens_in + excluded.tokens_in,
     tokens_out = usage_daily.tokens_out + excluded.tokens_out,
-    requests = usage_daily.requests + 1;
+    requests = usage_daily.requests + 1,
+    reserved = greatest(0, usage_daily.reserved - p_reserved);
 
   insert into spend_monthly (month, cost_micros) values (p_month, p_cost_micros)
   on conflict (month) do update set cost_micros = spend_monthly.cost_micros + excluded.cost_micros;
@@ -159,6 +195,10 @@ as $$
 $$;
 
 revoke all on function allowance(uuid, text, text, date, text, integer) from public, anon, authenticated;
-revoke all on function consume_tokens(uuid, text, text, date, text, integer, integer, bigint) from public, anon, authenticated;
+revoke all on function reserve_tokens(uuid, text, date, bigint, bigint) from public, anon, authenticated;
+revoke all on function release_tokens(uuid, text, date, bigint) from public, anon, authenticated;
+revoke all on function consume_tokens(uuid, text, text, date, text, integer, integer, bigint, bigint) from public, anon, authenticated;
 grant execute on function allowance(uuid, text, text, date, text, integer) to service_role;
-grant execute on function consume_tokens(uuid, text, text, date, text, integer, integer, bigint) to service_role;
+grant execute on function reserve_tokens(uuid, text, date, bigint, bigint) to service_role;
+grant execute on function release_tokens(uuid, text, date, bigint) to service_role;
+grant execute on function consume_tokens(uuid, text, text, date, text, integer, integer, bigint, bigint) to service_role;
