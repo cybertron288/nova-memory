@@ -366,7 +366,7 @@ pauses it → very occasionally deletes a time range.
 
 | Term | Meaning in UI copy |
 |---|---|
-| **Capture** | Reading text from the frontmost window. Never "recording" — Nova takes no screenshots in v1. |
+| **Capture** | Reading text from the frontmost window. Never "recording". A window with no readable text is read from a screenshot that stays in memory and is never saved or sent. |
 | **Memory** | The stored, encrypted, searchable result. |
 | **Derivative** | An atomic extracted fact. Never shown by that name in UI; say "fact". |
 | **Open loop** | A commitment, question, or follow-up that isn't closed yet. Shown as "open loop" — the term is good and users get it. |
@@ -1135,9 +1135,9 @@ Onboarding window, 720 × 560, **centered-narrow** composition.
               ─────────────────────────────────
                     ← hairline, 320pt wide, centered, spacing.9 above
 
-              Everything stays on this Mac, encrypted
-              Nova takes no screenshots
-              No account needed
+              Your memory is stored only on this Mac, encrypted
+              Text goes out only to be processed, never kept
+              Screenshots are never saved or sent
                           ← three caption lines, 11/400, ink-tertiary,
                             centered, spacing.3 apart
 
@@ -1198,9 +1198,14 @@ memory"* leads with the secondary feature and excludes every user who doesn't
 use an AI assistant. **The word "AI" appears nowhere in onboarding until the
 final, optional step** (§0, the hierarchy rule).
 
-"No account needed" replaces the old "You choose which apps it can see" in the
-claim list, because sign-in is removed and its absence is a genuine trust
-claim worth stating. App choice is demonstrated two screens later anyway.
+**Every claim line must be literally true.** An earlier draft read
+"Everything stays on this Mac, encrypted", "Nova takes no screenshots" and "No
+account needed". All three became false: captured text is sent to a model for
+processing, the OCR fallback takes screenshots, and an account is required.
+The lines now say what is true instead. The memory is stored only on this Mac.
+Text leaves only to be processed and is not kept by Nova; the Nova Cloud
+processing service must hold to that. OCR screenshots stay in memory and are
+never written to disk or sent.
 
 "Read the privacy details" opens the in-app privacy explainer, not a web page.
 Opening a browser at this moment loses the user.
@@ -1257,7 +1262,8 @@ paid back within two seconds. That sequence *is* the trust ceremony.
  │    titles                    │  │   ┌──────────────────────┐   │
  │  ✓ Works with every app,     │  │   │ Chrome · 2s ago      │   │
  │    no setup                  │  │   │ ──────────────────── │   │
- │  ✗ Takes no screenshots      │  │   │ Pull request #11     │   │
+ │  ✗ No screenshots with this  │
+ │    permission                │  │   │ Pull request #11     │   │
  │  ✗ Cannot click, type, or    │  │   │ ████████ opened this │   │
  │    control anything          │  │   │ 3 days ago           │   │
  │  ← caption list, spacing.3,  │  │   │ ████████████ ██████  │   │
@@ -1310,7 +1316,7 @@ the first sentence.
 
 | | Symbol | Title | The contract's negative lines | Preview shows |
 |---|---|---|---|---|
-| **C1 · Accessibility** | `accessibility` | "Let Nova read your screen" | ✗ Takes no screenshots · ✗ Cannot click, type, or control anything | Redacted AX text from their frontmost window |
+| **C1 · Accessibility** | `accessibility` | "Let Nova read your screen" | ✗ No screenshots with this permission · ✗ Cannot click, type, or control anything | Redacted AX text from their frontmost window |
 | **C2 · Microphone** | `mic` | "Let Nova hear your meetings" | ✗ Only records when a meeting app is using your mic · ✗ Never listens in the background | A live 2-second input-level meter and the sentence "Nova is not recording — this is just the level" |
 | **C3 · Screen Recording** | `rectangle.inset.filled` | "Let Nova read one app that needs it" | ✗ Off unless you turn on a specific app · ✗ No video is ever recorded | Renders **not-applicable at 40%** unless the user enabled an OCR exception in Settings |
 
@@ -1473,8 +1479,10 @@ Nothing that implies this already happened to them.
     Press ⌃⌥ any time to see what's still open.
                               ← 13pt, ink-secondary, centered
 
-    Nova sends the text it reads to Google (Gemini) to do this.
-    Nothing is stored there. Everything else stays on this Mac.
+    Nova sends the text it reads to Nova Cloud to do this.
+    Nothing is kept there. Your memory stays on this Mac.
+    ← with BYOK: "…to OpenAI, the provider you chose. Their
+      terms decide what they keep. Your memory stays on this Mac." 
                               ← 11pt caption, ink-tertiary, 62ch
 
                           [ Continue ]
@@ -1498,11 +1506,12 @@ its own step in the diagram rather than being folded into a sentence.
 
 #### The relay disclosure stays
 
-The closing caption naming Google (Gemini) survives from the earlier draft.
-It is the one place in onboarding where the user is told, in plain words, what
-leaves the machine and who touches it — and it reads better beside a concrete
-example than as an abstract claim. Do not move it to a tooltip, shorten it, or
-soften "Nothing is stored there".
+The closing caption names who processes the text: Nova Cloud, or the provider
+the user brought (BYOK). It is the one place in onboarding where the user is
+told, in plain words, what leaves the machine and who touches it — and it reads
+better beside a concrete example than as an abstract claim. Do not move it to a
+tooltip, shorten it, or soften "Nothing is kept there". For BYOK, Nova cannot
+promise what the user's provider keeps, so the caption defers to its terms.
 
 #### Motion
 
@@ -2236,8 +2245,8 @@ secondary ink at a 62-character measure: *"You make dozens of small promises a
 day — in email, chat, docs, meetings. Nova notices them, keeps the list, and
 checks them off when it sees you followed through."*; 32pt of space; a
 320pt-wide 1px hairline; then three 11pt caption lines in tertiary ink, 6pt
-apart: *"Everything stays on this Mac, encrypted"*, *"Nova takes no
-screenshots"*, *"No account needed"*; 40pt of space; a primary
+apart: *"Your memory is stored only on this Mac, encrypted"*, *"Text goes out
+only to be processed, never kept"*, *"Screenshots are never saved or sent"*; 40pt of space; a primary
 button reading **"Get started"** (accent fill, white text, 32pt tall, 5pt
 radius); and below it a 11pt secondary text link **"Read the privacy details"**.
 
@@ -2291,7 +2300,7 @@ four-item contract list in 11pt with 6pt spacing, two positive and two
 negative:
 > ✓ Reads text and window titles
 > ✓ Works with every app, no setup
-> ✗ Takes no screenshots
+> ✗ No screenshots with this permission
 > ✗ Cannot click, type, or control anything
 
 Checks in `oklch(0.642 0.112 158)`, crosses in tertiary ink. Then a primary
@@ -2426,8 +2435,9 @@ downward arrows, with an 11pt caption beside each arrow:**
 
 **Below the diagram:** a 13pt secondary line **"Press ⌃⌥ any time to see what's
 still open."** Then two lines of 11pt tertiary caption at a 62-character
-measure: *"Nova sends the text it reads to Google (Gemini) to do this. Nothing
-is stored there. Everything else stays on this Mac."* Then a primary
+measure: *"Nova sends the text it reads to Nova Cloud to do this. Nothing is
+kept there. Your memory stays on this Mac."* (With BYOK, the provider the user
+chose is named instead, and its terms decide what it keeps.) Then a primary
 **"Continue"**.
 
 **Critical detail one — it must look illustrative, not real.** This audience is
