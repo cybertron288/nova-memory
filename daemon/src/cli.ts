@@ -87,7 +87,7 @@ if (cmd === "start") {
   // The sink records what left the machine, for the transparency panel
   // (F5.5). recordCall swallows its own failures, so logging can never turn a
   // successful extraction into a failed one.
-  const { provider } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
+  const { provider, mode, session } = await resolveProvider(process.env, (c) => recordCall(db, c), { lockPath: SESSION_LOCK });
   if (provider instanceof MissingKeyProvider || provider instanceof UnconfiguredProvider) {
     await provider.extract("").catch((e) => { console.error(`[nova] ${e.message}`); process.exit(1); });
   }
@@ -138,6 +138,8 @@ if (cmd === "start") {
     queued: () => (db.prepare("SELECT COUNT(*) c FROM memory_retry_queue WHERE parked_at IS NULL").get() as any).c,
     unreachableSince: () => reachability.since,
     networkUp: () => { reachability.retryNow(); drain(); },
+    session,
+    providerMode: mode,
   };
   const control = startControlServer(join(DIR, CONTROL_SOCKET_NAME), db, key, state, provider);
   console.error(`[nova] control socket -> ${join(DIR, CONTROL_SOCKET_NAME)}`);
