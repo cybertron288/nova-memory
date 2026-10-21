@@ -14,7 +14,7 @@ Ordered by severity, not by when to do them.
 | D4 | Slack day separators captured but unused | open, largely subsumed by D3 |
 | D5 | Empty captures counted but not explained | open, low |
 | D6 | int8 vectors: revisit precision | closed 2026-09-18 |
-| D7 | Extraction drains one version per 15 s tick | open, low |
+| D7 | Extraction drains one version per 15 s tick | closed 2026-10-21 — a drain takes every due job |
 | D8 | Zed publishes no accessibility tree | addressed 2026-10-05 — generic OCR fallback |
 | D9 | Warm-up retries cost 1.3 s on an empty window | open, low — introduced by the D2 fix |
 | D10 | The observer-framing prompt change is unmeasured | open, low — blocked on the same judgement as D1 |
@@ -321,9 +321,11 @@ question, not a quality one.
 
 ## D7 — Extraction drains one version per 15s tick
 
-**Status:** open, low severity.
+**Status:** closed 2026-10-21. `drainQueue` claims every due job, not one, so
+a backlog clears in one drain. The network returning starts that drain at once
+(F1.6) instead of waiting for the tick.
 
-`nova start` runs `setInterval(drainQueue, 15_000)` and processes one version
+`nova start` ran `setInterval(drainQueue, 15_000)` and processed one version
 per tick. A backlog of 20+ versions takes minutes to clear. Fine for a single
 user browsing live; slow after any outage or a long retry backoff.
 

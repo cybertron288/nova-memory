@@ -145,6 +145,10 @@ final class PanelModel: ObservableObject {
 
     // MARK: - Derived view state
 
+    /// Set by the app's `NetworkMonitor`. Captures still land; only
+    /// extraction waits for the network.
+    @Published var offline = false
+
     var daemonDown: Bool { failure != nil }
     /// Set on every refresh. A revoked grant leaves the daemon answering and
     /// "capturing" while capture reads nothing, so this is checked here rather
@@ -170,9 +174,10 @@ final class PanelModel: ObservableObject {
         if accessibilityDenied { return "Accessibility permission needed" }
         guard let status else { return "connecting…" }
         if status.paused { return "Nova is paused" }
-        var line = "capturing"
-        if status.queued > 0 { line += " · \(status.queued) queued" }
-        return line
+        let queued = status.queued > 0 ? " · \(status.queued) queued" : ""
+        if offline { return "capturing offline" + queued }
+        if status.unreachableSince != nil { return "can't reach the provider" + queued }
+        return "capturing" + queued
     }
 
     var statusInk: Color {

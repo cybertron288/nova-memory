@@ -165,7 +165,7 @@ test("morning_digest answers over the control line", async () => {
   await recordLoops(db, KEY, [loop("a", "i_owe", "X")], null);
   const state: DaemonState = {
     gate: { paused: false }, startedAt: Date.now(), lastCaptureAt: () => null,
-    lastError: null, queued: () => 0,
+    lastError: null, queued: () => 0, unreachableSince: () => null, networkUp: () => {},
   };
   const r = JSON.parse(await handleControlLine(
     JSON.stringify({ id: 7, op: "morning_digest" }), db, KEY, state, new FakeProvider()));
@@ -178,7 +178,7 @@ test("morning_digest without a provider says so", async () => {
   const db = await openDb(":memory:");
   const state: DaemonState = {
     gate: { paused: false }, startedAt: Date.now(), lastCaptureAt: () => null,
-    lastError: null, queued: () => 0,
+    lastError: null, queued: () => 0, unreachableSince: () => null, networkUp: () => {},
   };
   const r = JSON.parse(await handleControlLine(JSON.stringify({ id: 8, op: "morning_digest" }), db, KEY, state));
   expect(r.ok).toBe(false);

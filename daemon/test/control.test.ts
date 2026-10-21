@@ -24,6 +24,8 @@ function freshState(db: any): DaemonState {
     lastCaptureAt: () => null,
     lastError: null,
     queued: () => (db.prepare("SELECT COUNT(*) c FROM memory_retry_queue").get() as any).c,
+    unreachableSince: () => null,
+    networkUp: () => {},
   };
 }
 
@@ -84,6 +86,18 @@ test("status reports capturing, paused, queued and uptime", async () => {
   expect(r.result.lastError).toBeNull();
   expect(r.result.pid).toBe(process.pid);
   expect(typeof r.result.uptimeMs).toBe("number");
+  expect(r.result.unreachableSince).toBeNull();
+});
+
+test("status reports since when the provider is unreachable, and network_up asks for a drain", async () => {
+  const db = await openDb(":memory:");
+  let kicks = 0;
+  const state = { ...freshState(db), unreachableSince: () => 1_700_000_000_000, networkUp: () => { kicks++; } };
+  const status = parse(handleControlLine(req({ id: 1, op: "status" }), db, KEY, state));
+  expect(status.result.unreachableSince).toBe(1_700_000_000_000);
+  const up = parse(handleControlLine(req({ id: 2, op: "network_up" }), db, KEY, state));
+  expect(up).toEqual({ id: 2, ok: true, result: {} });
+  expect(kicks).toBe(1);
 });
 
 test("list_loops returns the same rows listOpenLoops does", async () => {

@@ -23,7 +23,7 @@ Milestones (M) are in `roadmap.md`.
 | F1.3 | Detect meetings and capture microphone and system audio. | not built — proven only in an M0 spike |
 | F1.4 | Drop repeated captures: chrome-only changes, unchanged text, and moving relative timestamps (R3). | built |
 | F1.5 | Stop capturing when the user is idle or the display is asleep. | not built — capture samples every 3 s; deduplication keeps repeats out of the store |
-| F1.6 | Keep capturing offline and process the queue when the network returns. | partial — an unreachable provider spends no retry attempt; there is no offline detection or offline status |
+| F1.6 | Keep capturing offline and process the queue when the network returns. | built — an unreachable provider spends no retry attempt and pauses the drain; the shell watches the network path, shows "capturing offline · N queued", and has the daemon drain the moment the path returns |
 | F1.7 | Clipboard capture, opt-in. | not built |
 
 ## F2 — Memory engine

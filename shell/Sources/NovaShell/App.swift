@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSources: [DispatchSourceSignal] = []
     private var digestCard: DigestCardController!
     private var digest: DigestController!
+    private var network: NetworkMonitor!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A dead control socket would otherwise kill the process on write.
@@ -47,10 +48,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         digest = DigestController(card: digestCard) { [weak self] in self?.statusItem.glyphFrame }
         digest.start()
+
+        network = NetworkMonitor { [weak self] up in self?.model.offline = !up }
+        network.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkey.stop()
+        network.stop()
         poll?.invalidate()
         supervisor.stop()
     }

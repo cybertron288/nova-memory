@@ -54,6 +54,10 @@ export interface DaemonState {
   lastError: string | null;
   /** Read on demand so status never holds a stale count. */
   queued: () => number;
+  /** When the provider was first found unreachable, or null when it answers. */
+  unreachableSince: () => number | null;
+  /** The network is back: drain now instead of waiting out the retry. */
+  networkUp: () => void;
   /**
    * daemon.log, emptied by "delete everything": it names loops in plain text.
    * Absent in tests, so a test delete never touches the user's real log.
@@ -77,7 +81,7 @@ const OPS = new Set([
   "list_exclusions", "add_exclusion", "remove_exclusion", "list_calls",
   "list_captures", "list_blocked", "list_parked", "retry_parked",
   "data_summary", "count_for_delete", "delete_data", "set_retention",
-  "get_profile", "set_profile",
+  "get_profile", "set_profile", "network_up",
 ]);
 const ACTIONS = new Set<string>(["done", "snooze", "dismiss"]);
 const EXCLUSION_KINDS = new Set<string>(["app", "domain"]);
@@ -151,6 +155,7 @@ export function handleControlLine(
           capturing: !state.gate.paused,
           paused: state.gate.paused,
           queued: state.queued(),
+          unreachableSince: state.unreachableSince(),
           lastCaptureAt: state.lastCaptureAt(),
           lastError: state.lastError,
           uptimeMs: Date.now() - state.startedAt,
@@ -387,6 +392,10 @@ export function handleControlLine(
         const limit = typeof msg.limit === "number" ? msg.limit : 30;
         return reply(id, { ok: true, result: listMemories(db, key, limit) });
       }
+
+      case "network_up":
+        state.networkUp();
+        return reply(id, { ok: true, result: {} });
 
       case "pause":
         state.gate.paused = true;

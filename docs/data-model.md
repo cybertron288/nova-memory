@@ -332,9 +332,10 @@ Rules:
 
 | Op | Parameters | Result |
 |---|---|---|
-| `status` | none | `{ capturing, paused, queued, lastCaptureAt, lastError, uptimeMs, pid }`. `queued` excludes parked rows. |
+| `status` | none | `{ capturing, paused, queued, unreachableSince, lastCaptureAt, lastError, uptimeMs, pid }`. `queued` excludes parked rows. `unreachableSince` is epoch ms, or null while the provider answers. |
 | `pause` | none | `{ paused: true }`. Capture keeps running; lines are not stored. |
 | `resume` | none | `{ paused: false }` |
+| `network_up` | none | `{}`. Ends the unreachable-provider wait and starts a drain. Sent by the shell when the network path returns. |
 
 **Loops**
 

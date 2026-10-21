@@ -17,7 +17,7 @@
 // terminal output, which is never reached in the `mcp` branch.
 import { openDb, fieldKey } from "./db";
 import { ingestStream } from "./ingest";
-import { drainQueue, releaseStaleClaims } from "./pipeline";
+import { drainQueue, reachability, releaseStaleClaims } from "./pipeline";
 import { parseScope, sweepDue, sweepRetention, type DeleteScope } from "./forget";
 import { purgeSecrets } from "./purge";
 import { recordCall, type ProviderCall, type CallTotal } from "./calls";
@@ -101,6 +101,13 @@ if (cmd === "start") {
       + `redacted ${purged.versions} capture(s), ${purged.memories} memories, ${purged.loops} loop(s)`);
   }
 
+  const drain = () => {
+    drainQueue(db, key, provider).catch((e) => {
+      state.lastError = e instanceof Error ? e.message : String(e);
+      console.error(`[nova] ${state.lastError}`);
+    });
+  };
+
   // Everything the control socket can be asked about, in one object shared
   // with the ingest loop. The gate is the pause flag; the rest is telemetry
   // the shell's status glyph and error line are built from.
@@ -112,6 +119,8 @@ if (cmd === "start") {
       (db.prepare("SELECT MAX(committed_at) t FROM memory_versions").get() as any).t ?? null,
     lastError: null,
     queued: () => (db.prepare("SELECT COUNT(*) c FROM memory_retry_queue WHERE parked_at IS NULL").get() as any).c,
+    unreachableSince: () => reachability.since,
+    networkUp: () => { reachability.retryNow(); drain(); },
   };
   const control = startControlServer(join(DIR, CONTROL_SOCKET_NAME), db, key, state, provider);
   console.error(`[nova] control socket -> ${join(DIR, CONTROL_SOCKET_NAME)}`);
@@ -166,10 +175,7 @@ if (cmd === "start") {
 
   setInterval(() => {
     sweepIfDue();
-    drainQueue(db, key, provider).catch((e) => {
-      state.lastError = e instanceof Error ? e.message : String(e);
-      console.error(`[nova] ${state.lastError}`);
-    });
+    drain();
   }, 15_000);
 
   await ingestStream(db, key, proc.stdout, state.gate);

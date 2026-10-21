@@ -18,7 +18,7 @@ precision was re-measured on real embeddings at the end of M1 (D6).
 
 **M2 — Open loops and the app. In progress.**
 Built: loop extraction, auto-resolution, done/snooze/dismiss, precision
-rating, the digest card, the menu bar app, and Your Space (Activity, Blocked
+rating, the digest card, offline handling, the menu bar app, and Your Space (Activity, Blocked
 apps, Permissions, Profile, Your data). Remaining work is listed under
 "Next".
 
@@ -34,9 +34,6 @@ memory between people (F7). Neither is scheduled.
 
 - **Digest notification.** One macOS notification when the morning digest
   has loops, none when it has not (F4.3).
-- **Offline handling.** Detect when the network is down, show how many
-  captures are waiting, and drain them on reconnect without spending retries
-  (F1.6, D7).
 - **Nightly consolidation.** Merge duplicate facts, decay stale ones, and
   write a daily summary. Adds `get_daily_summary` (F2.5, F3.3).
 - **Onboarding.** A first-run window: permissions, capture policy, provider

@@ -271,7 +271,9 @@ slow provider never blocks ingest.
 - **No attempt spent.** A quota refusal (`QuotaExhausted`: HTTP 429, 402, or a
   quota message in the body), an unreachable provider (`ProviderUnreachable`),
   and a content change during extraction do not count toward the 8 attempts.
-  An unreachable provider pauses the rest of the batch for 60 s.
+  An unreachable provider pauses every drain for 60 s (`Reachability`), or
+  until the shell sees the network path return and sends `network_up`, which
+  drains at once.
 - **Malformed responses.** A 200 response that is truncated, empty, or has no
   `memories` array throws `MalformedResponse` and spends an attempt. Only an
   explicit `{"memories": []}` means "nothing to extract".

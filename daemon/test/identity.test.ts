@@ -12,7 +12,7 @@ function freshState(): DaemonState {
     startedAt: Date.now(),
     lastCaptureAt: () => null,
     lastError: null,
-    queued: () => 0,
+    queued: () => 0, unreachableSince: () => null, networkUp: () => {},
   };
 }
 

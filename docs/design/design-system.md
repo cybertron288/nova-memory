@@ -2057,7 +2057,7 @@ Every failure has a visible consequence (shell spec §9). Design per case:
 | Permission revoked (Flow 8) | attention | "Screen reading is off — memory has a gap since 2:14 pm" + [Fix] | [Fix] deep-links the System Settings pane; Nova polls and auto-recovers |
 | Socket timeout | attention | Same as not-running | Automatic reconnect |
 | One loop undecryptable | unchanged | Row omitted; count reads "3, 1 unreadable" | Logged, rest served |
-| Offline | capturing | Header: "Capturing · 14 queued for processing" | Drains automatically |
+| Offline | capturing | Header: "Capturing offline · 14 queued" | Drains when the network returns |
 
 **Design rule for all of them:** the message says what happened, when, and what
 Nova is doing about it. The gap notice naming a time ("since 2:14 pm") is
@@ -2904,7 +2904,7 @@ says **what happened, when, and what Nova is doing about it.**
 | **Daemon not running** | Attention glyph. Header: *"Nova isn't running — restarting…"* with an indeterminate 2pt progress hairline directly beneath the header |
 | **Crash loop** | Attention glyph. Header in red, the last error line in 11pt tertiary beneath it, and a **Restart** button |
 | **Permission revoked** | Attention glyph. *"Screen reading is off — memory has a gap since 2:14 pm"* plus a **Fix** button |
-| **Offline** | Capturing glyph (unchanged). Header: *"Capturing · 14 queued for processing"* |
+| **Offline** | Capturing glyph (unchanged). Header: *"Capturing offline · 14 queued"* |
 | **One loop undecryptable** | Normal, except the section eyebrow reads **OPEN LOOPS (3, 1 unreadable)** |
 
 **The critical detail:** the permission-revoked message names an exact time. A
