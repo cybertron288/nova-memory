@@ -30,7 +30,7 @@ New here? Start with the [project README](../README.md), then
 | [features.md](features.md) | Features F1–F7 and what is built |
 | [roadmap.md](roadmap.md) | Milestones and what comes next |
 | [deferred-tasks.md](deferred-tasks.md) | Work deliberately postponed (D-items), each with its reason |
-| [nova-cloud-design.md](nova-cloud-design.md) | Design: accounts, Nova Cloud, device checks and caps. Approved, not built |
+| [nova-cloud-design.md](nova-cloud-design.md) | Design: accounts, Nova Cloud, device keys and caps. The proxy is in [../cloud/](../cloud/README.md); the app side is not built |
 | [entity-graph-design.md](entity-graph-design.md) | Proposal: a graph of people, projects and facts. Not built |
 | [local-embeddings-experiment.md](local-embeddings-experiment.md) | Proposal: on-device embeddings. Not built |
 
