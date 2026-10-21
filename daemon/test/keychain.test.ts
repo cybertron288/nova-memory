@@ -73,3 +73,19 @@ test("the device key is stable 64-char hex", async () => {
   expect(a).toMatch(/^[0-9a-f]{64}$/);
   expect(await deviceKey()).toBe(a);
 });
+
+test("a secret is never passed on the security command line", async () => {
+  const value = '{"refreshToken":"rt-SECRET-CANARY","a":"b c"}';
+  const argvs: string[][] = [];
+  const spawn = Bun.spawn;
+  (Bun as any).spawn = (cmd: string[], opts: any) => { argvs.push(cmd); return spawn(cmd, opts); };
+  try {
+    await writeSecret(ACCOUNT + "-argv", value);
+    expect(await readSecret(ACCOUNT + "-argv")).toBe(value);
+  } finally {
+    (Bun as any).spawn = spawn;
+    await deleteKey(ACCOUNT + "-argv");
+  }
+  expect(argvs.length).toBeGreaterThan(0);
+  expect(argvs.some((a) => a.join(" ").includes("SECRET-CANARY"))).toBe(false);
+});
