@@ -1,17 +1,29 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Config } from "./config";
-import { LedgerUnavailable, type Ledger } from "./ledger";
+import { hashDevice, hashIp } from "./device";
+import { LedgerUnavailable, type Ledger, type LedgerKey } from "./ledger";
+import { dayKey, decide, monthKey } from "./limits";
+import { Unauthorized, type VerifySession } from "./session";
+import { validateChat, validateEmbed, type ChatBody, type EmbedBody, type Shaped } from "./shape";
+import type { Upstream, UpstreamKind } from "./upstream";
+import { costMicros, tokensFrom, type Tokens } from "./usage";
 
 export interface Deps {
   config: Config;
   now: () => number;
   ledger: Ledger;
+  verifySession: VerifySession;
+  upstream: Upstream;
   /** One JSON line per request. Never given a request or response body. */
   log: (line: Record<string, unknown>) => void;
 }
 
+/** How long the daemon should wait when the ledger cannot be reached. */
+const LEDGER_RETRY_S = "60";
+
 export function createApp(deps: Deps): Hono {
   const app = new Hono();
+  const { config } = deps;
 
   app.get("/health", async (c) => {
     try {
@@ -22,6 +34,98 @@ export function createApp(deps: Deps): Hono {
       return c.json({ ok: false, error: "ledger unavailable" }, 503);
     }
   });
+
+  const shapers: Record<UpstreamKind, (raw: unknown) => Shaped<ChatBody | EmbedBody>> = {
+    chat: (raw) => validateChat(raw, { model: config.chat.model, maxTokens: config.chatMaxTokens }),
+    embed: (raw) => validateEmbed(raw, { model: config.embed.model, maxInputs: 64, maxChars: config.embedMaxChars }),
+  };
+
+  const forward = (kind: UpstreamKind) => async (c: Context) => {
+    const started = deps.now();
+    const line: Record<string, unknown> = { path: c.req.path };
+    const done = (res: Response) => {
+      deps.log({ ...line, status: res.status, ms: deps.now() - started });
+      return res;
+    };
+
+    // Size first, before any work is spent on the request.
+    const raw = await c.req.text();
+    if (Buffer.byteLength(raw) > config.maxBodyBytes) return done(c.json({ error: "body too large" }, 413));
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return done(c.json({ error: "body is not JSON" }, 400));
+    }
+
+    let userId: string;
+    try {
+      userId = (await deps.verifySession(c.req.header("authorization"))).userId;
+    } catch (e) {
+      if (!(e instanceof Unauthorized)) throw e;
+      return done(c.json({ error: "sign in again" }, 401));
+    }
+    line.user = userId;
+
+    const device = c.req.header("x-nova-device")?.trim();
+    if (!device) return done(c.json({ error: "x-nova-device is required" }, 400));
+    const deviceHash = hashDevice(device);
+    line.device = deviceHash.slice(0, 8);
+
+    const shaped = shapers[kind](parsed);
+    if (!shaped.ok) return done(c.json({ error: shaped.error }, 400));
+
+    const now = deps.now();
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const key: LedgerKey = { userId, deviceHash, ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now) };
+
+    // Fail closed: without a ledger nothing is counted, so nothing is forwarded.
+    let decision;
+    try {
+      decision = decide(await deps.ledger.allowance(key), now, config.monthlyCeilingUsd, config.ipDailyLimit);
+    } catch (e) {
+      if (!(e instanceof LedgerUnavailable)) throw e;
+      line.ledger = "unavailable";
+      return done(c.json({ error: "Nova Cloud is unavailable" }, 503, { "retry-after": LEDGER_RETRY_S }));
+    }
+    if (!decision.ok) {
+      const headers: Record<string, string> = decision.retryAfter ? { "retry-after": String(decision.retryAfter) } : {};
+      return done(c.json({ error: decision.error }, decision.status, headers));
+    }
+
+    let reply: Response;
+    try {
+      reply = await deps.upstream(kind, shaped.body);
+    } catch (e) {
+      line.upstream = e instanceof Error ? e.name : "error";
+      return done(c.json({ error: "the model provider could not be reached" }, 502));
+    }
+
+    // A refusal from the upstream reaches the daemon as it was sent, so its
+    // quota and retry handling sees the provider's own status and Retry-After.
+    const text = await reply.text();
+    const headers: Record<string, string> = { "content-type": reply.headers.get("content-type") ?? "application/json" };
+    const retryAfter = reply.headers.get("retry-after");
+    if (retryAfter) headers["retry-after"] = retryAfter;
+    if (!reply.ok) return done(new Response(text, { status: reply.status, headers }));
+
+    let body: unknown = null;
+    try { body = JSON.parse(text); } catch { /* counted by estimate */ }
+    const tokens: Tokens = tokensFrom(kind, shaped.body, body);
+    line.in = tokens.in;
+    line.out = tokens.out;
+    try {
+      await deps.ledger.consume(key, tokens.in, tokens.out, costMicros(kind, tokens, config.prices));
+    } catch (e) {
+      // The work was done and paid for; the reply still goes back.
+      if (!(e instanceof LedgerUnavailable)) throw e;
+      line.ledger = "consume failed";
+    }
+    return done(new Response(text, { status: reply.status, headers }));
+  };
+
+  app.post("/v1/chat/completions", forward("chat"));
+  app.post("/v1/embeddings", forward("embed"));
 
   return app;
 }

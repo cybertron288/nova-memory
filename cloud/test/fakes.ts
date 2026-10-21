@@ -1,5 +1,8 @@
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import type { Deps } from "../src/app";
+import { sessionVerifier } from "../src/session";
+import type { Upstream, UpstreamKind } from "../src/upstream";
+import type { ChatBody, EmbedBody } from "../src/shape";
 import { loadConfig } from "../src/config";
 import { LedgerUnavailable, type Allowance, type Ledger, type LedgerKey } from "../src/ledger";
 
@@ -67,6 +70,8 @@ export function fakeDeps(overrides: Partial<Deps> = {}): Deps {
     config: loadConfig(fullEnv),
     now: () => Date.UTC(2026, 9, 21, 12, 0, 0),
     ledger: new FakeLedger(),
+    verifySession: sessionVerifier(testJwks, ISSUER),
+    upstream: fakeUpstream(() => Response.json({ choices: [{ message: { content: "{}" } }] })),
     log: () => {},
     ...overrides,
   };
@@ -89,4 +94,16 @@ export async function mintToken(
     .setIssuedAt()
     .setExpirationTime(opts.expiresAt ?? "1h")
     .sign(opts.key ?? signing.privateKey);
+}
+
+export type FakeUpstream = Upstream & { calls: { kind: UpstreamKind; body: ChatBody | EmbedBody }[] };
+
+export function fakeUpstream(reply: () => Response): FakeUpstream {
+  const calls: FakeUpstream["calls"] = [];
+  const upstream = (async (kind: UpstreamKind, body: ChatBody | EmbedBody) => {
+    calls.push({ kind, body });
+    return reply();
+  }) as FakeUpstream;
+  upstream.calls = calls;
+  return upstream;
 }
