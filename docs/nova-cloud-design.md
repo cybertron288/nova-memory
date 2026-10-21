@@ -265,8 +265,8 @@ SQL migrations in `cloud/supabase/migrations/`.
 | `plans` | `name` PK, `daily_token_cap` |
 | `accounts` | `user_id` PK → `auth.users`, `plan` → `plans` default `new`, `created_at` |
 | `devices` | `device_hash` PK, `first_seen`, `blocked`; and `account_devices` (`user_id`, `device_hash`, `linked_at`) |
-| `ip_daily` | `ip_hash`, `day`, `signups`, `requests`; PK (`ip_hash`, `day`) |
-| `usage_daily` | `subject`, `day`, `tokens_in`, `tokens_out`, `requests`; PK (`subject`, `day`). `subject` is `d:<device hash>` or `u:<user id>`; each request adds to both rows. |
+| `ip_daily` | `ip_hash` (an HMAC with a server secret), `day`, `signups`, `requests`; PK (`ip_hash`, `day`) |
+| `usage_daily` | `subject`, `day`, `tokens_in`, `tokens_out`, `reserved`; PK (`subject`, `day`). `subject` is `d:<device hash>` or `u:<user id>`; each request adds to both rows. `reserved` holds the worst case of requests in flight. |
 | `spend_monthly` | `month` PK, `cost_micros` |
 
 `consume_tokens(user, device, in, out, cost)` adds to `usage_daily` and

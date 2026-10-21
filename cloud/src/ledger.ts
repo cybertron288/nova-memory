@@ -23,6 +23,8 @@ export interface Allowance {
   deviceBlocked: boolean;
   /** This request would have created an account over its IP's daily limit. */
   signupRefused: boolean;
+  /** The token is valid but its user no longer exists. */
+  unknownUser: boolean;
   ipRequestsToday: number;
 }
 
@@ -71,7 +73,7 @@ export class SupabaseLedger implements Ledger {
       plan: r.plan, cap: Number(r.cap), deviceUsedToday: Number(r.device_used_today),
       accountUsedToday: Number(r.account_used_today), monthCostMicros: Number(r.month_cost_micros),
       deviceLinked: r.device_linked, deviceBlocked: r.device_blocked,
-      signupRefused: r.signup_refused, ipRequestsToday: Number(r.ip_requests_today),
+      signupRefused: r.signup_refused, unknownUser: r.unknown_user, ipRequestsToday: Number(r.ip_requests_today),
     };
   }
 
@@ -104,5 +106,5 @@ export class SupabaseLedger implements Ledger {
 type AllowanceRow = {
   plan: "new" | "free"; cap: number; device_used_today: number; account_used_today: number;
   month_cost_micros: number; device_linked: boolean; device_blocked: boolean;
-  signup_refused: boolean; ip_requests_today: number;
+  signup_refused: boolean; unknown_user: boolean; ip_requests_today: number;
 };

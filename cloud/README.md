@@ -61,8 +61,13 @@ variables. The proxy refuses to start if a required one is missing or invalid.
 | `NOVA_PRICE_CHAT_IN` | yes | USD per million chat input tokens |
 | `NOVA_PRICE_CHAT_OUT` | yes | USD per million chat output tokens |
 | `NOVA_PRICE_EMBED` | yes | USD per million embedding tokens |
+| `NOVA_IP_HASH_SECRET` | yes | At least 32 random characters. IPs are stored only as an HMAC with this secret, because the IPv4 space is small enough to reverse a plain hash. Generate one with `openssl rand -hex 32`. |
 | `NOVA_IP_DAILY_LIMIT` | no | Requests per IP per day, default 5000 |
 | `NOVA_IP_SIGNUP_LIMIT` | no | New accounts per IP per day, default 3 |
+
+Vercel's Bun preset finds the server by itself: it needs `bun.lock` and
+`src/server.ts` in the project root, both of which `cloud/` has, so
+`vercel.json` only sets `bunVersion`.
 
 Then deploy a preview:
 

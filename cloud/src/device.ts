@@ -1,7 +1,7 @@
-// The device key and the client IP are stored only as hashes.
-import { createHash } from "node:crypto";
+// The device key and the client IP are stored only as hashes. A device key is
+// random, so a plain hash cannot be reversed; the IPv4 space can be enumerated
+// in minutes, so an IP is hashed with a server secret.
+import { createHash, createHmac } from "node:crypto";
 
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
-
-export const hashDevice = (key: string): string => sha256(`device:${key}`);
-export const hashIp = (ip: string): string => sha256(`ip:${ip}`);
+export const hashDevice = (key: string): string => createHash("sha256").update(`device:${key}`).digest("hex");
+export const hashIp = (ip: string, secret: string): string => createHmac("sha256", secret).update(ip).digest("hex");

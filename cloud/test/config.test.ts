@@ -30,3 +30,9 @@ test("loadConfig reads a complete environment", () => {
 test("loadConfig refuses a zero price", () => {
   expect(() => loadConfig({ ...fullEnv, NOVA_PRICE_EMBED: "0" })).toThrow(/NOVA_PRICE_EMBED/);
 });
+
+test("loadConfig requires an IP hash secret of at least 32 characters", () => {
+  const { NOVA_IP_HASH_SECRET: _, ...without } = fullEnv;
+  expect(() => loadConfig(without)).toThrow(/NOVA_IP_HASH_SECRET/);
+  expect(() => loadConfig({ ...fullEnv, NOVA_IP_HASH_SECRET: "short" })).toThrow(/NOVA_IP_HASH_SECRET/);
+});

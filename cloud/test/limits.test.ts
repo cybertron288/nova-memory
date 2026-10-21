@@ -8,7 +8,7 @@ const IP_LIMIT = 5000;
 
 const fresh: Allowance = {
   plan: "free", cap: 1_000_000, deviceUsedToday: 0, accountUsedToday: 0, monthCostMicros: 0,
-  deviceLinked: true, deviceBlocked: false, signupRefused: false, ipRequestsToday: 0,
+  deviceLinked: true, deviceBlocked: false, signupRefused: false, unknownUser: false, ipRequestsToday: 0,
 };
 const at = (a: Partial<Allowance>, now = NOON) => decide({ ...fresh, ...a }, now, CEILING, IP_LIMIT);
 
@@ -62,4 +62,8 @@ test("an IP over its daily limit is 429 until midnight", () => {
 test("a new account refused for its IP's sign-up limit is 429 until midnight", () => {
   expect(at({ signupRefused: true }, Date.UTC(2026, 9, 21, 22, 0, 0)))
     .toMatchObject({ ok: false, status: 429, retryAfter: 7200 });
+});
+
+test("a deleted account is 401", () => {
+  expect(at({ unknownUser: true })).toMatchObject({ ok: false, status: 401 });
 });

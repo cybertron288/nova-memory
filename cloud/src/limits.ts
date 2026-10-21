@@ -4,7 +4,7 @@ import type { Allowance } from "./ledger";
 
 export type Decision =
   | { ok: true }
-  | { ok: false; status: 403 | 429; retryAfter?: number; error: string };
+  | { ok: false; status: 401 | 403 | 429; retryAfter?: number; error: string };
 
 const DAY_MS = 86_400_000;
 /** The ceiling's retry: hourly, matching the daemon's longest quota backoff. */
@@ -27,20 +27,31 @@ export function monthKey(now: number): string {
   return new Date(now).toISOString().slice(0, 7);
 }
 
-export function decide(a: Allowance, now: number, ceilingUsd: number, ipDailyLimit: number): Decision {
+/**
+ * Refusals about who is asking rather than how much they used. The usage
+ * endpoint applies these and nothing else, so a capped user still sees numbers.
+ */
+export function admission(a: Allowance, now: number): Decision {
+  if (a.unknownUser) return { ok: false, status: 401, error: "this account no longer exists" };
   if (a.deviceBlocked) return { ok: false, status: 403, error: "this device is blocked" };
   if (!a.deviceLinked) {
     return { ok: false, status: 403, error: "this account has linked too many devices in the last 30 days" };
   }
+  if (a.signupRefused) {
+    return { ok: false, status: 429, retryAfter: secondsUntilUtcMidnight(now), error: "too many new accounts from this network today" };
+  }
+  return { ok: true };
+}
+
+export function decide(a: Allowance, now: number, ceilingUsd: number, ipDailyLimit: number): Decision {
+  const admitted = admission(a, now);
+  if (!admitted.ok) return admitted;
   // The ceiling first: when it is reached, the daily caps no longer matter and
   // the hourly retry is the one the daemon should follow.
   if (a.monthCostMicros >= ceilingUsd * 1_000_000) {
     return { ok: false, status: 429, retryAfter: CEILING_RETRY_S, error: "Nova Cloud is paused for this month" };
   }
   const untilMidnight = secondsUntilUtcMidnight(now);
-  if (a.signupRefused) {
-    return { ok: false, status: 429, retryAfter: untilMidnight, error: "too many new accounts from this network today" };
-  }
   if (a.ipRequestsToday >= ipDailyLimit) {
     return { ok: false, status: 429, retryAfter: untilMidnight, error: "too many requests from this network today" };
   }

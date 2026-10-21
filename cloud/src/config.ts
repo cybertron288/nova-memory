@@ -20,6 +20,7 @@ export interface Config {
   embedMaxChars: number;
   ipDailyLimit: number;
   ipSignupLimit: number;
+  ipHashSecret: string;
 }
 
 export class ConfigError extends Error {
@@ -57,6 +58,12 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     return n;
   };
 
+  const secret = (name: string): string => {
+    const value = text(name);
+    if (value && value.length < 32) problems.push(`${name} must be at least 32 characters`);
+    return value;
+  };
+
   const optionalCount = (name: string, fallback: number): number => {
     const value = env[name]?.trim();
     if (!value) return fallback;
@@ -83,6 +90,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     embedMaxChars: 200_000,
     ipDailyLimit: optionalCount("NOVA_IP_DAILY_LIMIT", 5000),
     ipSignupLimit: optionalCount("NOVA_IP_SIGNUP_LIMIT", 3),
+    ipHashSecret: secret("NOVA_IP_HASH_SECRET"),
   };
   if (problems.length > 0) throw new ConfigError(problems);
   return config;

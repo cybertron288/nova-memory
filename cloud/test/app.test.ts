@@ -51,7 +51,7 @@ test("a Nova chat request is forwarded with the server's model and its usage is 
   expect(upstream.calls).toHaveLength(1);
   expect(upstream.calls[0]!.kind).toBe("chat");
   expect(upstream.calls[0]!.body).toMatchObject({ model: "deepseek-chat", max_tokens: 4096 });
-  expect(ledger.used(`d:${hashDevice(DEVICE)}`, DAY)).toEqual({ in: 1200, out: 80, requests: 1 });
+  expect(ledger.used(`d:${hashDevice(DEVICE)}`, DAY)).toEqual({ in: 1200, out: 80 });
 });
 
 test("an embeddings request is forwarded and counted", async () => {
@@ -60,14 +60,14 @@ test("an embeddings request is forwarded and counted", async () => {
   const res = await post(fakeDeps({ upstream, ledger }), "/v1/embeddings", { model: "x", input: ["a"], dimensions: 1536 });
   expect(res.status).toBe(200);
   expect(upstream.calls[0]!.body).toEqual({ model: "gemini-embedding-001", input: ["a"], dimensions: 1536 });
-  expect(ledger.used("u:u1", DAY)).toEqual({ in: 30, out: 0, requests: 1 });
+  expect(ledger.used("u:u1", DAY)).toEqual({ in: 30, out: 0 });
 });
 
 test("a reply with no usage is counted by estimate, not as zero", async () => {
   const upstream = fakeUpstream(() => Response.json(chatReply("y".repeat(40))));
   const ledger = new FakeLedger();
   await post(fakeDeps({ upstream, ledger }), "/v1/chat/completions", chatBody("x".repeat(400)));
-  expect(ledger.used("u:u1", DAY)).toEqual({ in: 100, out: 10, requests: 1 });
+  expect(ledger.used("u:u1", DAY)).toEqual({ in: 100, out: 10 });
 });
 
 test("an upstream 429 passes through with its Retry-After and consumes nothing", async () => {
@@ -142,7 +142,7 @@ test("a JSON array body is 400", async () => {
 test("over the daily cap is 429 with Retry-After until midnight", async () => {
   const upstream = fakeUpstream(() => Response.json(chatReply()));
   const ledger = new FakeLedger();
-  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 1_000_000, out: 0, requests: 1 });
+  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 1_000_000, out: 0 });
   const res = await post(fakeDeps({ upstream, ledger }), "/v1/chat/completions", chatBody());
   expect(res.status).toBe(429);
   expect(res.headers.get("retry-after")).toBe("43200");
@@ -168,8 +168,8 @@ async function getUsage(deps: ReturnType<typeof fakeDeps>, token: string | null)
 test("usage reports plan, today's use, cap and the next UTC midnight", async () => {
   const ledger = new FakeLedger();
   ledger.state = { ...ledger.state, plan: "new", cap: 100_000 };
-  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 2000, out: 500, requests: 3 });
-  ledger.usage.set(`u:u1|${DAY}`, { in: 3000, out: 1000, requests: 5 });
+  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 2000, out: 500 });
+  ledger.usage.set(`u:u1|${DAY}`, { in: 3000, out: 1000 });
   const res = await getUsage(fakeDeps({ ledger }), await mintToken({ sub: "u1" }));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ plan: "new", usedToday: 4000, capToday: 100_000, resetsAt: "2026-10-22T00:00:00.000Z" });
@@ -207,7 +207,7 @@ test("a usage of zero tokens is counted by estimate, not as free", async () => {
   const upstream = fakeUpstream(() => Response.json({ data: [{ embedding: [0.1] }], usage: { prompt_tokens: 0, total_tokens: 0 } }));
   const ledger = new FakeLedger();
   await post(fakeDeps({ upstream, ledger }), "/v1/embeddings", { input: ["a".repeat(80)] });
-  expect(ledger.used("u:u1", DAY)).toEqual({ in: 20, out: 0, requests: 1 });
+  expect(ledger.used("u:u1", DAY)).toEqual({ in: 20, out: 0 });
 });
 
 test("the client IP is Vercel's x-real-ip, not a client-supplied forwarded-for entry", async () => {
@@ -237,7 +237,7 @@ test("concurrent requests cannot together pass the daily cap", async () => {
   }, { calls: upstream.calls });
   const ledger = new FakeLedger();
   // Room for one request's worst case (1 input token + max_tokens 4096), not two.
-  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 1_000_000 - 5000, out: 0, requests: 1 });
+  ledger.usage.set(`d:${hashDevice(DEVICE)}|${DAY}`, { in: 1_000_000 - 5000, out: 0 });
   const deps = fakeDeps({ upstream: slow, ledger });
   const pending = Promise.all([1, 2, 3].map(() => post(deps, "/v1/chat/completions", chatBody())));
   await new Promise((r) => setTimeout(r, 20));
@@ -260,5 +260,47 @@ test("a successful request replaces its reservation with the real count", async 
   const ledger = new FakeLedger();
   await post(fakeDeps({ upstream, ledger }), "/v1/chat/completions", chatBody());
   expect(ledger.reservedFor("u:u1", DAY)).toBe(0);
-  expect(ledger.used("u:u1", DAY)).toEqual({ in: 10, out: 2, requests: 1 });
+  expect(ledger.used("u:u1", DAY)).toEqual({ in: 10, out: 2 });
+});
+
+test("a declared content-length over the limit is 413 without reading the body", async () => {
+  let read = false;
+  // highWaterMark 0: pull runs only when someone reads, not to prefill the queue.
+  const body = new ReadableStream(
+    { pull(ctrl) { read = true; ctrl.enqueue(new TextEncoder().encode("{}")); ctrl.close(); } },
+    { highWaterMark: 0 },
+  );
+  const res = await createApp(fakeDeps()).request("/v1/chat/completions", {
+    method: "POST", body, headers: { "content-length": String(10 * 1024 * 1024) }, duplex: "half",
+  } as RequestInit);
+  expect(res.status).toBe(413);
+  expect(read).toBe(false);
+});
+
+test("usage for a sign-up refused by its network's limit is 429, not a zero cap", async () => {
+  const ledger = new FakeLedger();
+  ledger.state = { ...ledger.state, signupRefused: true };
+  const res = await getUsage(fakeDeps({ ledger }), await mintToken({ sub: "u1" }));
+  expect(res.status).toBe(429);
+});
+
+test("usage for a device the account may not link is 403", async () => {
+  const ledger = new FakeLedger();
+  ledger.state = { ...ledger.state, deviceLinked: false };
+  expect((await getUsage(fakeDeps({ ledger }), await mintToken({ sub: "u1" }))).status).toBe(403);
+});
+
+test("usage over today's cap still reports the numbers", async () => {
+  const ledger = new FakeLedger();
+  ledger.usage.set(`u:u1|${DAY}`, { in: 1_000_000, out: 0 });
+  const res = await getUsage(fakeDeps({ ledger }), await mintToken({ sub: "u1" }));
+  expect(res.status).toBe(200);
+  expect((await res.json()).usedToday).toBe(1_000_000);
+});
+
+test("a deleted account with a still-valid token is 401, not 503", async () => {
+  const ledger = new FakeLedger();
+  ledger.state = { ...ledger.state, unknownUser: true };
+  const res = await post(fakeDeps({ ledger }), "/v1/chat/completions", chatBody());
+  expect(res.status).toBe(401);
 });

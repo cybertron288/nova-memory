@@ -19,9 +19,10 @@ export const fullEnv: Record<string, string> = {
   NOVA_PRICE_CHAT_IN: "0.27",
   NOVA_PRICE_CHAT_OUT: "1.10",
   NOVA_PRICE_EMBED: "0.15",
+  NOVA_IP_HASH_SECRET: "test-ip-hash-secret-0123456789abcdef",
 };
 
-export interface Usage { in: number; out: number; requests: number }
+export interface Usage { in: number; out: number }
 
 /** In memory. `state` is what allowance() reports beyond the usage it counts. */
 export class FakeLedger implements Ledger {
@@ -29,7 +30,7 @@ export class FakeLedger implements Ledger {
   pings = 0;
   state: Omit<Allowance, "deviceUsedToday" | "accountUsedToday" | "monthCostMicros"> = {
     plan: "free", cap: 1_000_000, deviceLinked: true, deviceBlocked: false,
-    signupRefused: false, ipRequestsToday: 0,
+    signupRefused: false, unknownUser: false, ipRequestsToday: 0,
   };
   /** Keyed `${subject}|${day}`, subject `d:<device hash>` or `u:<user id>`. */
   usage = new Map<string, Usage>();
@@ -66,7 +67,7 @@ export class FakeLedger implements Ledger {
   }
 
   used(subject: string, day: string): Usage {
-    return this.usage.get(`${subject}|${day}`) ?? { in: 0, out: 0, requests: 0 };
+    return this.usage.get(`${subject}|${day}`) ?? { in: 0, out: 0 };
   }
 
   async allowance(k: LedgerKey): Promise<Allowance> {
@@ -84,7 +85,7 @@ export class FakeLedger implements Ledger {
     await this.release(k, reservedTokens);
     for (const subject of [`d:${k.deviceHash}`, `u:${k.userId}`]) {
       const u = this.used(subject, k.day);
-      this.usage.set(`${subject}|${k.day}`, { in: u.in + tokensIn, out: u.out + tokensOut, requests: u.requests + 1 });
+      this.usage.set(`${subject}|${k.day}`, { in: u.in + tokensIn, out: u.out + tokensOut });
     }
     this.spend.set(k.month, (this.spend.get(k.month) ?? 0) + costMicros);
   }

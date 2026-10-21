@@ -39,7 +39,6 @@ create table usage_daily (
   day date not null,
   tokens_in bigint not null default 0,
   tokens_out bigint not null default 0,
-  requests integer not null default 0,
   reserved bigint not null default 0 check (reserved >= 0),
   primary key (subject, day)
 );
@@ -83,7 +82,17 @@ declare
   v_plan text;
   v_cap bigint;
 begin
-  select * into v_account from accounts where user_id = p_user;
+  -- A token stays valid for up to an hour after its user is deleted.
+  if not exists (select 1 from auth.users where id = p_user) then
+    return jsonb_build_object(
+      'plan', 'new', 'cap', 0, 'device_used_today', 0, 'account_used_today', 0,
+      'month_cost_micros', 0, 'device_linked', false, 'device_blocked', false,
+      'signup_refused', false, 'unknown_user', true, 'ip_requests_today', 0);
+  end if;
+
+  -- Locked so two requests from one account cannot both pass the device-link
+  -- count below.
+  select * into v_account from accounts where user_id = p_user for update;
 
   if not found then
     insert into ip_daily (ip_hash, day) values (p_ip, p_day) on conflict do nothing;
@@ -92,7 +101,7 @@ begin
       return jsonb_build_object(
         'plan', 'new', 'cap', 0, 'device_used_today', 0, 'account_used_today', 0,
         'month_cost_micros', 0, 'device_linked', false, 'device_blocked', false,
-        'signup_refused', true, 'ip_requests_today', 0);
+        'signup_refused', true, 'unknown_user', false, 'ip_requests_today', 0);
     end if;
     insert into accounts (user_id) values (p_user) on conflict do nothing returning * into v_account;
     v_created := v_account.user_id is not null;
@@ -135,6 +144,7 @@ begin
     'device_linked', v_linked,
     'device_blocked', v_blocked,
     'signup_refused', false,
+    'unknown_user', false,
     'ip_requests_today', coalesce((select requests from ip_daily where ip_hash = p_ip and day = p_day), 0));
 end;
 $$;
@@ -179,12 +189,11 @@ create function consume_tokens(
 language sql
 set search_path = public
 as $$
-  insert into usage_daily (subject, day, tokens_in, tokens_out, requests)
-  values ('d:' || p_device, p_day, p_in, p_out, 1), ('u:' || p_user::text, p_day, p_in, p_out, 1)
+  insert into usage_daily (subject, day, tokens_in, tokens_out)
+  values ('d:' || p_device, p_day, p_in, p_out), ('u:' || p_user::text, p_day, p_in, p_out)
   on conflict (subject, day) do update set
     tokens_in = usage_daily.tokens_in + excluded.tokens_in,
     tokens_out = usage_daily.tokens_out + excluded.tokens_out,
-    requests = usage_daily.requests + 1,
     reserved = greatest(0, usage_daily.reserved - p_reserved);
 
   insert into spend_monthly (month, cost_micros) values (p_month, p_cost_micros)

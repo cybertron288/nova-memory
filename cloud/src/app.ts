@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import type { Config } from "./config";
 import { hashDevice, hashIp } from "./device";
 import { LedgerUnavailable, type Ledger, type LedgerKey } from "./ledger";
-import { dayKey, decide, monthKey, nextUtcMidnight, secondsUntilUtcMidnight } from "./limits";
+import { admission, dayKey, decide, monthKey, nextUtcMidnight, secondsUntilUtcMidnight, type Decision } from "./limits";
 import { Unauthorized, type VerifySession } from "./session";
 import { validateChat, validateEmbed, type ChatBody, type EmbedBody, type Shaped } from "./shape";
 import type { Upstream, UpstreamKind } from "./upstream";
@@ -26,6 +26,11 @@ function clientIp(c: Context): string {
   return c.req.header("x-real-ip")?.trim()
     || c.req.header("x-forwarded-for")?.split(",")[0]?.trim()
     || "unknown";
+}
+
+function refused(c: Context, d: Extract<Decision, { ok: false }>): Response {
+  const headers: Record<string, string> = d.retryAfter ? { "retry-after": String(d.retryAfter) } : {};
+  return c.json({ error: d.error }, d.status, headers);
 }
 
 /** How long the daemon should wait when the ledger cannot be reached. */
@@ -58,7 +63,11 @@ export function createApp(deps: Deps): Hono {
       return res;
     };
 
-    // Size first, before any work is spent on the request.
+    // Size first, before any work is spent on the request: the declared length
+    // before the body is read, then the real one.
+    if (Number(c.req.header("content-length") ?? 0) > config.maxBodyBytes) {
+      return done(c.json({ error: "body too large" }, 413));
+    }
     const raw = await c.req.text();
     if (Buffer.byteLength(raw) > config.maxBodyBytes) return done(c.json({ error: "body too large" }, 413));
     let parsed: unknown;
@@ -87,7 +96,7 @@ export function createApp(deps: Deps): Hono {
 
     const now = deps.now();
     const ip = clientIp(c);
-    const key: LedgerKey = { userId, deviceHash, ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now) };
+    const key: LedgerKey = { userId, deviceHash, ipHash: hashIp(ip, config.ipHashSecret), day: dayKey(now), month: monthKey(now) };
 
     // Fail closed: without a ledger nothing is counted, so nothing is forwarded.
     const unavailable = () => {
@@ -98,10 +107,7 @@ export function createApp(deps: Deps): Hono {
     try {
       const allowance = await deps.ledger.allowance(key);
       const decision = decide(allowance, now, config.monthlyCeilingUsd, config.ipDailyLimit);
-      if (!decision.ok) {
-        const headers: Record<string, string> = decision.retryAfter ? { "retry-after": String(decision.retryAfter) } : {};
-        return done(c.json({ error: decision.error }, decision.status, headers));
-      }
+      if (!decision.ok) return done(refused(c, decision));
       if (!(await deps.ledger.reserve(key, reserved, allowance.cap))) {
         return done(c.json({ error: "today's Nova Cloud allowance is used up" }, 429,
           { "retry-after": String(secondsUntilUtcMidnight(now)) }));
@@ -182,8 +188,10 @@ export function createApp(deps: Deps): Hono {
     const ip = clientIp(c);
     try {
       const a = await deps.ledger.allowance({
-        userId, deviceHash: hashDevice(device), ipHash: hashIp(ip), day: dayKey(now), month: monthKey(now),
+        userId, deviceHash: hashDevice(device), ipHash: hashIp(ip, config.ipHashSecret), day: dayKey(now), month: monthKey(now),
       });
+      const admitted = admission(a, now);
+      if (!admitted.ok) return refused(c, admitted);
       return c.json({
         plan: a.plan,
         usedToday: Math.max(a.deviceUsedToday, a.accountUsedToday),
