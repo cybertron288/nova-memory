@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { getOrCreateKey, deleteKey, isGenuinelyAbsent } from "../src/keychain";
+import { getOrCreateKey, deleteKey, deviceKey, isGenuinelyAbsent, readSecret, writeSecret } from "../src/keychain";
 
 const ACCOUNT = "nova-test-key-DELETEME";
 
@@ -55,4 +55,21 @@ test("security CLI: item-not-found is exit 44, a usage error is a different code
   const usageErrorCode = await usageError.exited;
   expect(usageErrorCode).not.toBe(44);
   expect(isGenuinelyAbsent(usageErrorCode)).toBe(false);
+});
+
+test("a written secret reads back exactly", async () => {
+  await writeSecret(ACCOUNT + "-secret", '{"a":"b c"}');
+  expect(await readSecret(ACCOUNT + "-secret")).toBe('{"a":"b c"}');
+  await deleteKey(ACCOUNT + "-secret");
+});
+
+test("an absent secret reads as null", async () => {
+  await deleteKey(ACCOUNT + "-missing");
+  expect(await readSecret(ACCOUNT + "-missing")).toBeNull();
+});
+
+test("the device key is stable 64-char hex", async () => {
+  const a = await deviceKey();
+  expect(a).toMatch(/^[0-9a-f]{64}$/);
+  expect(await deviceKey()).toBe(a);
 });

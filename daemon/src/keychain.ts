@@ -59,3 +59,24 @@ export async function getOrCreateKey(account: string): Promise<Buffer> {
   }
   return key;
 }
+
+/** A string item, or null only when the item genuinely does not exist. */
+export async function readSecret(account: string): Promise<string | null> {
+  const found = await run(["find-generic-password", "-s", SERVICE, "-a", account, "-w"]);
+  if (found.ok) return found.out;
+  if (isGenuinelyAbsent(found.code)) return null;
+  throw new Error(`keychain: cannot read ${account}: ${found.err}`);
+}
+
+export async function writeSecret(account: string, value: string): Promise<void> {
+  const added = await run(["add-generic-password", "-s", SERVICE, "-a", account, "-w", value, "-U"]);
+  if (!added.ok) throw new Error(`keychain: could not store ${account}: ${added.err}`);
+}
+
+/**
+ * This Mac's Nova Cloud device key. Random, so it says nothing about the
+ * machine; Nova Cloud stores only its hash.
+ */
+export async function deviceKey(): Promise<string> {
+  return (await getOrCreateKey("device")).toString("hex");
+}
